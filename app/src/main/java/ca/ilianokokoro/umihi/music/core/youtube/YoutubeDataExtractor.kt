@@ -722,10 +722,11 @@ object YoutubeDataExtractor {
             ?.safeObject()?.get("contents")
             ?.safeArray() ?: return emptyList()
 
-        // The result page is a flat list of sections, and songs arrive in two different shapes:
-        // a top level musicShelfRenderer, or one level down inside an itemSectionRenderer.
-        // Only reading the former is why search came back empty. Entries without a videoId
-        // (artist / album cards) are dropped by extractSong itself.
+        // Results arrive either as a top level musicShelfRenderer, or nested one level down in an
+        // itemSectionRenderer — the latter whenever no search params are sent, which makes the
+        // endpoint answer with the combined "top result" layout. Both shapes are walked so the
+        // parser never silently comes back empty for one of them. Entries without a videoId
+        // (artist, album and playlist cards) are dropped by extractSong itself.
         val songRendererList = contents.flatMap { section ->
             val sectionObject = section.safeObject() ?: return@flatMap emptyList<JsonElement>()
             (sectionObject["musicShelfRenderer"] ?: sectionObject["itemSectionRenderer"])

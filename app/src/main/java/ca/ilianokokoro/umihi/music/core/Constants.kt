@@ -379,8 +379,23 @@ object Constants {
         object Search {
             const val URL = "https://music.youtube.com/youtubei/v1/search?prettyPrint=false"
 
-            // No filter params constant here on purpose — see buildContextBody(). The previous
-            // hardcoded song filter is rejected by the current API and yields zero results.
+            /**
+             * Selects the "Songs" vertical of the search result page — the upstream default.
+             *
+             * This is easy to mistake for the cause of "no results": an empty answer means the
+             * exit node is in a region YouTube Music does not serve, not that the filter is
+             * stale. Verified against the live endpoint, a valid region returns a
+             * `musicShelfRenderer` titled "Songs" with 20 entries.
+             *
+             * Omitting it is worse, not better: the endpoint then answers with the combined
+             * "top result" layout, where songs, videos, albums, playlists and artists each get
+             * a single card, so a search yields a handful of mixed entries instead of a list.
+             *
+             * Other verticals use the same protobuf with a different type byte, e.g.
+             * `EgWKAQIQAWoSEAMQBBAQEAUQFRAKEAkQERAO` selects Videos. The app deliberately
+             * exposes only Songs for now; YouTube videos therefore never show up here.
+             */
+            const val FILTER = "EgWKAQIIAWoSEAMQBBAQEAUQFRAKEAkQERAO"
         }
 
         object SearchAutocomplete {

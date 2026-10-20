@@ -47,10 +47,9 @@ object YoutubeAuthHelper {
             if (idName != null) {
                 put(idName, JsonPrimitive(id))
 
-                // Deliberately no `params` for search. The old hardcoded song filter no longer
-                // matches what YouTube Music accepts: sending it makes the server answer
-                // "No results for <query>" with an empty shelf. Without it the response is the
-                // normal combined page, whose shelves the search parser walks.
+                if (idName == "query") {
+                    put("params", JsonPrimitive(Constants.YoutubeApi.Search.FILTER))
+                }
             }
         }
     }
