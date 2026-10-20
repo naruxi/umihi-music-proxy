@@ -390,12 +390,23 @@ object Constants {
              * Omitting it is worse, not better: the endpoint then answers with the combined
              * "top result" layout, where songs, videos, albums, playlists and artists each get
              * a single card, so a search yields a handful of mixed entries instead of a list.
-             *
-             * Other verticals use the same protobuf with a different type byte, e.g.
-             * `EgWKAQIQAWoSEAMQBBAQEAUQFRAKEAkQERAO` selects Videos. The app deliberately
-             * exposes only Songs for now; YouTube videos therefore never show up here.
              */
             const val FILTER = "EgWKAQIIAWoSEAMQBBAQEAUQFRAKEAkQERAO"
+
+            /**
+             * Selects the "Videos" vertical — the same protobuf with a different type byte.
+             *
+             * Verified against the live endpoint (WEB_REMIX): answers with a `musicShelfRenderer`
+             * titled "Videos" holding 20 entries, each a `musicResponsiveListItemRenderer` with a
+             * `playlistItemData.videoId` — byte-for-byte the shape [FILTER] produces, so the
+             * existing search parser handles both without a second code path.
+             *
+             * Only the audio matters here: playback resolves `streamingData.adaptiveFormats`
+             * filtered to `audio/*`, so a music video plays as its soundtrack. That is the point
+             * of exposing this vertical — uploads, live takes and covers that YouTube Music does
+             * not carry as a catalog song are reachable this way.
+             */
+            const val FILTER_VIDEOS = "EgWKAQIQAWoSEAMQBBAQEAUQFRAKEAkQERAO"
         }
 
         object SearchAutocomplete {

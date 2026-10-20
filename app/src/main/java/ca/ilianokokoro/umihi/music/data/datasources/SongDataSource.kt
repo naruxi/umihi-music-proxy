@@ -22,10 +22,11 @@ class SongDataSource {
         )
     }
 
-    suspend fun search(query: String): List<Song> {
+    suspend fun search(query: String, params: String? = null): List<Song> {
         return YoutubeDataExtractor.extractSearchResults(
             YoutubeApiClient.search(
-                query
+                query,
+                params
             )
         )
     }

@@ -12,6 +12,7 @@ import ca.ilianokokoro.umihi.music.data.repositories.DatastoreRepository
 import ca.ilianokokoro.umihi.music.data.repositories.DownloadRepository
 import ca.ilianokokoro.umihi.music.data.repositories.SongRepository
 import ca.ilianokokoro.umihi.music.models.Song
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.update
@@ -20,6 +21,8 @@ import kotlinx.coroutines.launch
 class SearchViewModel(application: Application) : AndroidViewModel(application) {
     private val _uiState = MutableStateFlow(SearchState())
     val uiState = _uiState.asStateFlow()
+
+    private var searchJob: Job? = null
 
     private val datastoreRepository = DatastoreRepository(application)
     val songRepository = SongRepository(application)
@@ -39,7 +42,8 @@ class SearchViewModel(application: Application) : AndroidViewModel(application) 
 
 
     fun search() {
-        viewModelScope.launch {
+        searchJob?.cancel()
+        searchJob = viewModelScope.launch {
             if (_uiState.value.search.isBlank()) {
                 _uiState.update {
                     _uiState.value.copy(
@@ -50,7 +54,8 @@ class SearchViewModel(application: Application) : AndroidViewModel(application) 
                 return@launch
             }
 
-            songRepository.search(_uiState.value.search).collect { apiResult ->
+            val params = _uiState.value.filter.params
+            songRepository.search(_uiState.value.search, params).collect { apiResult ->
                 _uiState.update {
                     _uiState.value.copy(
                         screenState = when (apiResult) {
@@ -65,6 +70,20 @@ class SearchViewModel(application: Application) : AndroidViewModel(application) 
             }
         }
 
+    }
+
+    /**
+     * Swaps the search vertical and re-runs the current query so the list reflects it at once.
+     * The in-flight request is cancelled by [search] itself, which keeps a slow earlier response
+     * from landing on top of the newer one.
+     */
+    fun setFilter(filter: SearchFilter) {
+        if (_uiState.value.filter == filter) return
+        _uiState.update { it.copy(filter = filter) }
+
+        if (_uiState.value.search.isNotBlank()) {
+            search()
+        }
     }
 
 

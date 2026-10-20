@@ -319,11 +319,12 @@ object YoutubeApiClient {
     }
 
 
-    suspend fun search(query: String): String {
+    suspend fun search(query: String, params: String? = null): String {
         return requestWithContext(
             url = Constants.YoutubeApi.Search.URL,
             idName = "query",
-            id = query
+            id = query,
+            params = params
         )
     }
 
@@ -379,13 +380,15 @@ object YoutubeApiClient {
         client: JsonObject? = null,
         visitorData: String? = null,
         fields: String? = null,
+        params: String? = null,
     ): String {
         val body = YoutubeAuthHelper.buildContextBody(
             idName,
             id,
             settings,
             client,
-            visitorData
+            visitorData,
+            params
         )
 
         return requestWithBody(
