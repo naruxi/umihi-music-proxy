@@ -1057,6 +1057,10 @@ object YoutubeDataExtractor {
             }
 
             if (savedSong.streamUrl != null) {
+                if (isStreamUrlFresh(savedSong.streamUrl)) {
+                    printd("[${song.youtubeId}] Got url from saved, expire still valid")
+                    return savedSong.streamUrl
+                }
                 if (isYoutubeUrlValid(savedSong.streamUrl)) {
                     printd("[${song.youtubeId}] Got url from saved")
                     return savedSong.streamUrl
@@ -1287,12 +1291,33 @@ object YoutubeDataExtractor {
             throw Exception("($status) $reason")
         }
 
-        if (!isYoutubeUrlValid(directUrl)) {
-            throw Exception("($status) Url was invalid")
-        }
-
+        // No HEAD probe here. This URL was signed by the player response we just parsed, so it
+        // is valid by construction. The probe used to cost a full round trip on a proxied link
+        // (measured 1.8-2.7s of first-byte latency against googlevideo), and it sat in front of
+        // the real fetch, so every track start paid it twice.
         return directUrl
     }
+
+    /**
+     * True when the URL's own signed `expire` stamp says it stays good for a while.
+     *
+     * googlevideo URLs carry their expiry in the query string, so reading it locally answers the
+     * same question [isYoutubeUrlValid] answers with a HEAD request — without the round trip.
+     * On a proxied link that probe measures 1.8-2.7s to first byte, which is exactly the wait
+     * felt when a track starts. Anything without a readable stamp falls back to the probe.
+     */
+    private fun isStreamUrlFresh(url: String): Boolean {
+        val expireAt = STREAM_EXPIRE.find(url)?.groupValues?.getOrNull(1)?.toLongOrNull()
+            ?: return false
+        val nowSeconds = System.currentTimeMillis() / 1000
+        return expireAt - nowSeconds > STREAM_EXPIRE_MARGIN_SECONDS
+    }
+
+    /** `expire=` in seconds since the epoch, as googlevideo signs it. */
+    private val STREAM_EXPIRE = Regex("[?&]expire=(\\d+)")
+
+    /** Re-fetch rather than risk handing the player a URL that dies mid-track. */
+    private const val STREAM_EXPIRE_MARGIN_SECONDS = 300L
 
     private suspend fun isYoutubeUrlValid(url: String): Boolean = withContext(Dispatchers.IO) {
         try {
