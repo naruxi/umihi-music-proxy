@@ -70,8 +70,6 @@
     <string name="home">首页</string>
     <string name="search">搜索</string>
     <string name="no_results">无结果</string>
-    <string name="search_filter_songs">歌曲</string>
-    <string name="search_filter_videos">视频</string>
     <string name="get_song_failed">获取歌曲信息失败</string>
     <string name="queue_empty">队列中没有歌曲</string>
     <string name="cancel_playlist_download">取消播放列表下载</string>

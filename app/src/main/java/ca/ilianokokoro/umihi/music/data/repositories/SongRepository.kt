@@ -20,7 +20,7 @@ class SongRepository(
     private val localSongDataSource =
         application?.let { AppDatabase.getInstance(it).songRepository() }
 
-    fun search(query: String, params: String? = null): Flow<ApiResult<List<Song>>> {
+    fun search(query: String): Flow<ApiResult<List<Song>>> {
         return flow {
             emit(ApiResult.Loading)
             val offlineMode = datastoreRepository?.getSettings()?.offlineMode == true
@@ -28,7 +28,7 @@ class SongRepository(
                 val localSongs = localSongDataSource?.searchDownloaded(query) ?: emptyList()
                 emit(ApiResult.Success(localSongs))
             } else {
-                val remoteSongs = songDataSource.search(query, params)
+                val remoteSongs = songDataSource.search(query)
                 val localSongs = localSongDataSource
                     ?.getSongsByYoutubeIds(remoteSongs.map { it.youtubeId })
                     .orEmpty()

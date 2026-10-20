@@ -740,6 +740,71 @@ object YoutubeDataExtractor {
             .distinctBy { it.youtubeId }
     }
 
+    /**
+     * Parses a plain YouTube search response into songs.
+     *
+     * The endpoint answers with `videoRenderer` items rather than the music renderers
+     * [extractSearchResults] expects, so this walks the whole `contents` tree instead of a fixed
+     * path — YouTube nests results differently depending on whether a shelf, a section or a
+     * single card comes back. Every entry that survives carries a `videoId`, a title, the channel
+     * name, a duration and a thumbnail, which is all a Song needs; playback resolves the
+     * audio-only stream from that id.
+     */
+    fun extractWebSearchResults(jsonString: String): List<Song> {
+        val root = Json.parseToJsonElement(jsonString).safeObject() ?: return emptyList()
+        val renderers = mutableListOf<JsonObject>()
+        collectVideoRenderers(root["contents"] ?: return emptyList(), renderers)
+
+        return renderers
+            .mapNotNull { extractWebSong(it) }
+            .distinctBy { it.youtubeId }
+    }
+
+    private fun collectVideoRenderers(element: JsonElement, out: MutableList<JsonObject>) {
+        when (element) {
+            is JsonObject -> element.forEach { (key, value) ->
+                if (key == "videoRenderer") {
+                    value.safeObject()?.let { out.add(it) }
+                } else {
+                    collectVideoRenderers(value, out)
+                }
+            }
+
+            is JsonArray -> element.forEach { collectVideoRenderers(it, out) }
+            else -> Unit
+        }
+    }
+
+    private fun extractWebSong(renderer: JsonObject): Song? {
+        val videoId = renderer["videoId"]?.jsonPrimitive?.contentOrNull
+            ?.takeIf { it.isNotBlank() } ?: return null
+        val title = readText(renderer["title"])?.takeIf { it.isNotBlank() } ?: return null
+        val artists = readText(renderer["ownerText"])
+            ?: readText(renderer["longBylineText"])
+            ?: readText(renderer["shortBylineText"])
+            ?: ""
+        val duration = readText(renderer["lengthText"]) ?: ""
+
+        return Song(
+            youtubeId = videoId,
+            title = title,
+            artists = artists,
+            duration = duration,
+            thumbnailHref = getBestThumbnailUrl(renderer["thumbnail"]),
+            isAvailable = renderer["upcomingEventData"] == null,
+        )
+    }
+
+    /** Reads either a `runs` array or a `simpleText` field, both of which the web client uses. */
+    private fun readText(element: JsonElement?): String? {
+        val obj = element?.safeObject() ?: return null
+        obj["simpleText"]?.jsonPrimitive?.contentOrNull?.let { return it }
+        return obj["runs"]?.safeArray()
+            ?.joinToString("") { run ->
+                run.safeObject()?.get("text")?.jsonPrimitive?.contentOrNull ?: ""
+            }
+    }
+
 
     fun extractSongInfo(jsonString: String): Song {
         val json = Json.parseToJsonElement(jsonString).jsonObject

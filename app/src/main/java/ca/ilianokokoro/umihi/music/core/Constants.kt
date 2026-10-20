@@ -311,6 +311,20 @@ object Constants {
                 put("platform", JsonPrimitive("DESKTOP"))
             }
 
+            /**
+             * The plain YouTube web client, used for the fallback search.
+             *
+             * It has to be named here because [YoutubeAuthHelper.applyHeaders] derives the
+             * `X-YouTube-Client-Name`, `X-YouTube-Client-Version` and `User-Agent` headers from
+             * this object — sending the music client's identity to youtube.com would be rejected.
+             */
+            val WEB = buildJsonObject {
+                put("clientName", JsonPrimitive("WEB"))
+                put("clientVersion", JsonPrimitive("2.20260701.00.00"))
+                put("xClientName", JsonPrimitive("1"))
+                put("userAgent", JsonPrimitive(USER_AGENT))
+            }
+
             val VISION_OS = buildJsonObject {
                 put("clientName", JsonPrimitive("VISIONOS"))
                 put("clientVersion", JsonPrimitive("0.1"))
@@ -377,37 +391,33 @@ object Constants {
         }
 
         object Search {
+            /**
+             * The YouTube Music catalog endpoint.
+             *
+             * Deliberately sent without a `params` filter. Those filters are protobuf blobs that
+             * carry a "supported features" bitmap tied to a client build, and against the current
+             * endpoint every one of them — the Songs constant this app used to send, the Songs and
+             * Videos values published by third-party clients, and freshly generated variants —
+             * answers `messageRenderer: "No results for <query>"`. The endpoint is not broken:
+             * the same request without `params` returns the combined "top result" layout.
+             *
+             * Worse, on exits that YouTube Music treats as unsupported (datacenter and some proxy
+             * ranges — the web app literally answers "YouTube Music is not available in your
+             * area") the catalog verticals come back empty and only user-generated shelves
+             * survive: profiles, community playlists and podcasts, none of which carry a
+             * `videoId`. That is the "no results" report this codebase kept chasing.
+             */
             const val URL = "https://music.youtube.com/youtubei/v1/search?prettyPrint=false"
 
             /**
-             * Selects the "Songs" vertical of the search result page — the upstream default.
+             * The plain YouTube search endpoint, used as the fallback.
              *
-             * This is easy to mistake for the cause of "no results": an empty answer means the
-             * exit node is in a region YouTube Music does not serve, not that the filter is
-             * stale. Verified against the live endpoint, a valid region returns a
-             * `musicShelfRenderer` titled "Songs" with 20 entries.
-             *
-             * Omitting it is worse, not better: the endpoint then answers with the combined
-             * "top result" layout, where songs, videos, albums, playlists and artists each get
-             * a single card, so a search yields a handful of mixed entries instead of a list.
+             * It answers with `videoRenderer` items — `videoId`, title, channel name, duration and
+             * thumbnails — which is everything a [ca.ilianokokoro.umihi.music.models.Song] needs.
+             * Playback resolves the audio-only stream from `streamingData.adaptiveFormats`, so a
+             * video entered this way plays as its soundtrack.
              */
-            const val FILTER = "EgWKAQIIAWoSEAMQBBAQEAUQFRAKEAkQERAO"
-
-            /**
-             * Selects the "Videos" vertical — the same protobuf with a different type byte.
-             *
-             * Verified against the live endpoint (WEB_REMIX): answers with a `musicShelfRenderer`
-             * titled "Videos" holding 20 entries, each a `musicResponsiveListItemRenderer` with a
-             * `playlistItemData.videoId` — byte-for-byte the shape [FILTER] produces, so the
-             * existing search parser handles both without a second code path.
-             *
-             * Only the audio matters here: playback resolves `streamingData.adaptiveFormats`
-             * and keeps the highest-bitrate entry whose mime type starts with "audio/", so a
-             * music video plays as its soundtrack. That is the point
-             * of exposing this vertical — uploads, live takes and covers that YouTube Music does
-             * not carry as a catalog song are reachable this way.
-             */
-            const val FILTER_VIDEOS = "EgWKAQIQAWoSEAMQBBAQEAUQFRAKEAkQERAO"
+            const val URL_WEB = "https://www.youtube.com/youtubei/v1/search?prettyPrint=false"
         }
 
         object SearchAutocomplete {

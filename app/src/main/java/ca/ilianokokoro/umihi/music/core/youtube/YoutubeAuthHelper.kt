@@ -47,14 +47,12 @@ object YoutubeAuthHelper {
 
             if (idName != null) {
                 put(idName, JsonPrimitive(id))
-
-                if (idName == "query") {
-                    put(
-                        "params",
-                        JsonPrimitive(params ?: Constants.YoutubeApi.Search.FILTER)
-                    )
-                }
             }
+
+            // Only sent when the caller asks for one. There is no default: every vertical filter
+            // constant answers "No results" against the current endpoint, so the field has to be
+            // absent rather than filled in with a guess.
+            params?.let { put("params", JsonPrimitive(it)) }
         }
     }
 

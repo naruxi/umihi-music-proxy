@@ -54,8 +54,7 @@ class SearchViewModel(application: Application) : AndroidViewModel(application) 
                 return@launch
             }
 
-            val params = _uiState.value.filter.params
-            songRepository.search(_uiState.value.search, params).collect { apiResult ->
+            songRepository.search(_uiState.value.search).collect { apiResult ->
                 _uiState.update {
                     _uiState.value.copy(
                         screenState = when (apiResult) {
@@ -70,20 +69,6 @@ class SearchViewModel(application: Application) : AndroidViewModel(application) 
             }
         }
 
-    }
-
-    /**
-     * Swaps the search vertical and re-runs the current query so the list reflects it at once.
-     * The in-flight request is cancelled by [search] itself, which keeps a slow earlier response
-     * from landing on top of the newer one.
-     */
-    fun setFilter(filter: SearchFilter) {
-        if (_uiState.value.filter == filter) return
-        _uiState.update { it.copy(filter = filter) }
-
-        if (_uiState.value.search.isNotBlank()) {
-            search()
-        }
     }
 
 

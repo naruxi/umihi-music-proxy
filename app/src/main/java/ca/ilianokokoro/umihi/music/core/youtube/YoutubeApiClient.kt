@@ -328,6 +328,23 @@ object YoutubeApiClient {
         )
     }
 
+    /**
+     * Searches all of YouTube instead of the music catalog.
+     *
+     * Exists because the music endpoint silently drops its catalog shelves for exits that
+     * YouTube Music considers unsupported, leaving only profiles and community playlists —
+     * none playable. Plain YouTube search keeps working on those exits, so this is the
+     * fallback that turns "no results" back into something to play.
+     */
+    suspend fun searchWeb(query: String): String {
+        return requestWithContext(
+            url = Constants.YoutubeApi.Search.URL_WEB,
+            idName = "query",
+            id = query,
+            client = Constants.YoutubeApi.Client.WEB,
+        )
+    }
+
     private suspend fun requestWithBody(
         url: String,
         body: Any,

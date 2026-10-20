@@ -4,7 +4,6 @@ import android.app.Application
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
-import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
@@ -18,7 +17,6 @@ import androidx.compose.material.icons.rounded.Search
 import androidx.compose.material3.AppBarWithSearch
 import androidx.compose.material3.ExpandedDockedSearchBarWithGap
 import androidx.compose.material3.ExperimentalMaterial3Api
-import androidx.compose.material3.FilterChip
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.IconButtonDefaults
@@ -205,32 +203,6 @@ fun SearchScreenContent(
         horizontalAlignment = Alignment.CenterHorizontally,
         verticalArrangement = Arrangement.Top
     ) {
-        if (uiState.search.isNotBlank()) {
-            Row(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(horizontal = 12.dp, vertical = 4.dp),
-                horizontalArrangement = Arrangement.spacedBy(8.dp)
-            ) {
-                SearchFilter.entries.forEach { filter ->
-                    FilterChip(
-                        selected = uiState.filter == filter,
-                        onClick = { searchViewModel.setFilter(filter) },
-                        label = {
-                            Text(
-                                text = stringResource(
-                                    when (filter) {
-                                        SearchFilter.SONGS -> R.string.search_filter_songs
-                                        SearchFilter.VIDEOS -> R.string.search_filter_videos
-                                    }
-                                )
-                            )
-                        }
-                    )
-                }
-            }
-        }
-
         when (val screenState = uiState.screenState) {
             is ScreenState.Error -> {
                 ErrorMessage(

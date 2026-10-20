@@ -22,12 +22,47 @@ class SongDataSource {
         )
     }
 
-    suspend fun search(query: String, params: String? = null): List<Song> {
-        return YoutubeDataExtractor.extractSearchResults(
-            YoutubeApiClient.search(
-                query,
-                params
-            )
-        )
+    /**
+     * Searches the music catalog, then falls back to all of YouTube when that comes back thin.
+     *
+     * The catalog endpoint drops its shelves — songs, albums, videos — for exits it considers
+     * unsupported, answering with profiles, community playlists and podcasts instead. None of
+     * those carry a video id, so the music parser legitimately yields nothing and the screen
+     * said "No results" on a perfectly working connection. Plain YouTube search is unaffected by
+     * that gating and returns videos whose audio the player already knows how to resolve.
+     *
+     * The verdict is remembered for the life of the process: on such an exit every query answers
+     * the same way, and paying two round trips per search is exactly the kind of wait this app
+     * is trying to avoid.
+     */
+    suspend fun search(query: String): List<Song> {
+        var musicError: Throwable? = null
+
+        if (!catalogUnavailable) {
+            val musicAttempt = runCatching {
+                YoutubeDataExtractor.extractSearchResults(YoutubeApiClient.search(query))
+            }
+            val musicResults = musicAttempt.getOrElse { error ->
+                musicError = error
+                emptyList()
+            }
+
+            if (musicResults.size >= MIN_MUSIC_RESULTS) return musicResults
+
+            // Only latch when the request itself succeeded — a network failure says something
+            // about the exit, not about the catalog.
+            if (musicAttempt.isSuccess) catalogUnavailable = true
+        }
+
+        return runCatching {
+            YoutubeDataExtractor.extractWebSearchResults(YoutubeApiClient.searchWeb(query))
+        }.getOrElse { webError -> throw (musicError ?: webError) }
+    }
+
+    private companion object {
+        const val MIN_MUSIC_RESULTS = 3
+
+        @Volatile
+        var catalogUnavailable = false
     }
 }

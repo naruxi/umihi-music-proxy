@@ -70,8 +70,6 @@
     <string name="home">首頁</string>
     <string name="search">搜尋</string>
     <string name="no_results">沒有符合條件的結果</string>
-    <string name="search_filter_songs">歌曲</string>
-    <string name="search_filter_videos">影片</string>
     <string name="get_song_failed">歌曲資訊取得失敗</string>
     <string name="queue_empty">播放佇列內尚無歌曲</string>
     <string name="cancel_playlist_download">取消播放清單下載</string>
