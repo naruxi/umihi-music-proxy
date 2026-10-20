@@ -80,6 +80,7 @@ jobs:
           echo "storePassword=${{ secrets.KEY_STORE_PASSWORD }}" >> keystore.properties
           echo "keyAlias=${{ secrets.ALIAS }}" >> keystore.properties
           echo "keyPassword=${{ secrets.KEY_PASSWORD }}" >> keystore.properties
+          echo "storeType=PKCS12" >> keystore.properties
 
       - name: Run tests
         run: ./gradlew test

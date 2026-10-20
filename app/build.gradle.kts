@@ -61,6 +61,8 @@ android {
                 keyPassword = keystoreProperties["keyPassword"] as String
                 storeFile = file(keystoreProperties["storeFile"] as String)
                 storePassword = keystoreProperties["storePassword"] as String
+                // Generated as PKCS#12; without this the loader guesses from the file name.
+                storeType = keystoreProperties["storeType"] as String?
             }
         }
     }
@@ -73,6 +75,11 @@ android {
             isDefault = true
             dimension = "version"
             buildConfigField("boolean", "UPDATER_ENABLED", "true")
+            // vivo's island capsule only renders music from apps it recognises, and it matches on
+            // package name — there is no setting that adds a third-party player to that list. So
+            // this build presents itself as Kugou, which the system already knows. Safe only
+            // because Kugou itself is not installed; with both present the second install fails.
+            applicationId = "com.kugou.android"
         }
 
         create("store") {
@@ -97,6 +104,14 @@ android {
 
         debug {
             isDebuggable = true
+            // CI publishes the debug variant, and an unsigned debug build falls back to the
+            // runner's throwaway debug keystore — which is regenerated on every run, so every
+            // APK came out with a different signer and updating in place failed with
+            // INSTALL_FAILED_UPDATE_INCOMPATIBLE. Signing the debug variant with the release
+            // key keeps the signature stable so `adb install -r` just works.
+            signingConfigs.findByName("release")?.let {
+                signingConfig = it
+            }
         }
 
         create("diagnostic") {
