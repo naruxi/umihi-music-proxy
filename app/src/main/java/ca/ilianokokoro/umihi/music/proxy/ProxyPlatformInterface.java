@@ -44,6 +44,11 @@ public class ProxyPlatformInterface implements PlatformInterface {
         public String next() {
             return null;
         }
+
+        @Override
+        public int len() {
+            return 0;
+        }
     };
 
     @Override
