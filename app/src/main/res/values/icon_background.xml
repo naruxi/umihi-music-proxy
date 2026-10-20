@@ -1,6 +1,6 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
-    <!-- The green disc one streaming service made recognisable. The mark is its owner's
-         trademark; this build is for a single personal device, not for distribution. -->
-    <color name="icon_background">#1DB954</color>
+    <!-- The red disc one video service's music arm uses. That mark belongs to its owner;
+         this build is for a single personal device, not for distribution. -->
+    <color name="icon_background">#FF0033</color>
 </resources>
