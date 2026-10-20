@@ -33,6 +33,19 @@ import io.nekohasekai.libbox.WIFIState;
  */
 public class ProxyPlatformInterface implements PlatformInterface {
 
+    /** Shared empty iterator for callbacks whose result Go walks without a nil check. */
+    private static final StringIterator EMPTY_STRINGS = new StringIterator() {
+        @Override
+        public boolean hasNext() {
+            return false;
+        }
+
+        @Override
+        public String next() {
+            return null;
+        }
+    };
+
     @Override
     public void autoDetectInterfaceControl(int fd) {
         CrashGuard.INSTANCE.trace("cb:autoDetectInterfaceControl");
@@ -65,11 +78,29 @@ public class ProxyPlatformInterface implements PlatformInterface {
         return null;
     }
 
+    /**
+     * Must never return null.
+     *
+     * sing-box asks for the connection owner on *every* connection it routes
+     * (`Router.prepareMatchMetadata` -> `searchProcessInfo` -> `platformSearcher.FindProcessInfo`),
+     * not only when a process/package rule exists. libbox dereferences the returned struct
+     * unconditionally at `experimental/libbox/service.go:226`, so returning null is an
+     * immediate SIGSEGV inside the Go runtime — which surfaces as an uncatchable SIGABRT and
+     * kills the whole app the moment the first proxied request goes out.
+     *
+     * An "unknown owner" with empty fields is the correct answer here: the loopback inbound
+     * always originates from this very process, and no rule in our config matches on it.
+     */
     @Override
     public ConnectionOwner findConnectionOwner(int ipProtocol, String sourceAddress, int sourcePort,
                                               String destinationAddress, int destinationPort) {
-        // Only queried for process/package routing rules, which this config never declares.
-        return null;
+        CrashGuard.INSTANCE.trace("cb:findConnectionOwner " + sourceAddress + ":" + sourcePort);
+        ConnectionOwner owner = new ConnectionOwner();
+        owner.setUserId(-1);
+        owner.setUserName("");
+        owner.setProcessPath("");
+        owner.setAndroidPackageNames(EMPTY_STRINGS);
+        return owner;
     }
 
     /**
