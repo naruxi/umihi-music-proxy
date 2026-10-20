@@ -1,0 +1,43 @@
+package ca.ilianokokoro.umihi.music.models.github
+
+import androidx.compose.runtime.Immutable
+import ca.ilianokokoro.umihi.music.core.Constants
+import ca.ilianokokoro.umihi.music.core.helpers.ComposeHelper.getBulletPointsFromMarkdown
+import kotlinx.serialization.SerialName
+import kotlinx.serialization.Serializable
+
+@Immutable
+@Serializable
+data class GithubReleaseResponse(
+    @SerialName("tag_name")
+    val tagName: String,
+    val body: String,
+    val assets: List<AssetsResponse>,
+    @SerialName("target_commitish")
+    val commit: String
+) {
+    val versionName: String
+        get() = tagName.removePrefix("v")
+
+    val isBeta: Boolean
+        get() = !tagName.contains(".")
+
+    val cleanBody: String
+        get() = if (isBeta)
+            body
+        else
+            body.getBulletPointsFromMarkdown()
+
+    val downloadUrl: String
+        get() = if (isBeta)
+            Constants.Url.Github.Beta.DOWNLOAD
+        else
+            Constants.Url.Github.Release.DOWNLOAD
+
+}
+
+@Serializable
+data class AssetsResponse(
+    @SerialName("browser_download_url")
+    val url: String,
+)

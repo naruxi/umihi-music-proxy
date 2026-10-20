@@ -1,0 +1,233 @@
+package ca.ilianokokoro.umihi.music.ui.screens.home
+
+
+import android.app.Application
+import androidx.lifecycle.AndroidViewModel
+import androidx.lifecycle.ViewModelProvider
+import androidx.lifecycle.viewModelScope
+import androidx.lifecycle.viewmodel.initializer
+import androidx.lifecycle.viewmodel.viewModelFactory
+import ca.ilianokokoro.umihi.music.R
+import ca.ilianokokoro.umihi.music.core.ApiResult
+import ca.ilianokokoro.umihi.music.core.Constants
+import ca.ilianokokoro.umihi.music.core.helpers.LogHelper.printe
+import ca.ilianokokoro.umihi.music.data.repositories.DatastoreRepository
+import ca.ilianokokoro.umihi.music.data.repositories.PlaylistRepository
+import ca.ilianokokoro.umihi.music.models.PlaylistInfo
+import ca.ilianokokoro.umihi.music.models.UmihiSettings
+import ca.ilianokokoro.umihi.music.models.enums.Privacy
+import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.flow.update
+import kotlinx.coroutines.launch
+
+class HomeViewModel(private val application: Application) : AndroidViewModel(application) {
+    private val _uiState = MutableStateFlow(HomeState())
+    val uiState = _uiState.asStateFlow()
+
+    private val playlistRepository = PlaylistRepository(application)
+    private val datastoreRepository = DatastoreRepository(application)
+
+
+    init {
+        getPlaylists()
+        observeDownloadedSongsCount()
+    }
+
+    private fun observeDownloadedSongsCount() {
+        viewModelScope.launch {
+            playlistRepository.getDownloadedSongsCountFlow().collect { count ->
+                _uiState.update { currentState ->
+                    currentState.copy(downloadedSongsCount = count)
+                }
+            }
+        }
+    }
+
+    fun getPlaylists() {
+        viewModelScope.launch {
+            getPlaylistsSuspend()
+        }
+    }
+
+    fun refreshPlaylists() {
+        viewModelScope.launch {
+            _uiState.update { currentState ->
+                currentState.copy(isRefreshing = true)
+            }
+
+            try {
+                refreshPlaylistsOnce()
+            } catch (ex: Exception) {
+                printe(message = ex.toString(), exception = ex)
+            } finally {
+                _uiState.update { currentState ->
+                    currentState.copy(isRefreshing = false)
+                }
+            }
+        }
+    }
+
+    private suspend fun refreshPlaylistsOnce() {
+        val settings = datastoreRepository.getSettings()
+
+        if (settings.cookies.isEmpty() && !settings.offlineMode) {
+            applyPlaylistFiltersAndUpdateState(
+                playlists = emptyList(),
+                settings = settings
+            )
+            return
+        }
+
+        val apiResult = playlistRepository.retrieveAll(settings)
+            .first { result ->
+                result is ApiResult.Success || result is ApiResult.Error
+            }
+
+        val playlists = when (apiResult) {
+            is ApiResult.Success -> apiResult.data.toMutableList()
+            is ApiResult.Error -> emptyList()
+            ApiResult.Loading -> return
+        }
+
+        applyPlaylistFiltersAndUpdateState(
+            playlists = playlists,
+            settings = settings
+        )
+    }
+
+    suspend fun getPlaylistsSuspend() {
+        try {
+            val settings = datastoreRepository.getSettings()
+
+            if (settings.cookies.isEmpty() && !settings.offlineMode) {
+                applyPlaylistFiltersAndUpdateState(
+                    playlists = emptyList(),
+                    settings = settings
+                )
+                return
+            }
+
+            playlistRepository.retrieveAll(settings).collect { apiResult ->
+                when (apiResult) {
+                    ApiResult.Loading -> {
+                        _uiState.update { currentState ->
+                            currentState.copy(screenState = ScreenState.Loading)
+                        }
+                    }
+
+                    is ApiResult.Success -> {
+                        val playlists = apiResult.data.toMutableList()
+                        applyPlaylistFiltersAndUpdateState(playlists, settings)
+                    }
+
+                    is ApiResult.Error -> {
+                        printe(
+                            message = "Failed to load playlists",
+                            exception = apiResult.exception
+                        )
+                        applyPlaylistFiltersAndUpdateState(
+                            playlists = emptyList(),
+                            settings = settings
+                        )
+                    }
+                }
+            }
+        } catch (ex: Exception) {
+            printe(message = ex.toString(), exception = ex)
+        }
+    }
+
+    private suspend fun applyPlaylistFiltersAndUpdateState(
+        playlists: List<PlaylistInfo>,
+        settings: UmihiSettings
+    ) {
+        val mutablePlaylists = playlists.toMutableList()
+        val downloadedCount = try {
+            playlistRepository.getDownloadedSongsCount()
+        } catch (ex: Exception) {
+            printe(message = ex.toString(), exception = ex)
+            0
+        }
+        val downloadedPlaylist = PlaylistInfo(
+            id = Constants.Downloads.DOWNLOADED_PLAYLIST_ID,
+            title = application.getString(R.string.downloaded)
+        )
+        downloadedPlaylist.songCount = downloadedCount
+
+        mutablePlaylists.add(0, downloadedPlaylist)
+
+        _uiState.update { currentState ->
+            currentState.copy(
+                screenState = ScreenState.LoggedIn(
+                    playlistInfos = mutablePlaylists,
+                    isLoggedIn = settings.cookies.isNotEmpty()
+                )
+            )
+        }
+    }
+
+    fun createPlaylist(title: String, description: String, privacy: Privacy) {
+        viewModelScope.launch {
+            try {
+                val settings = datastoreRepository.getSettings()
+
+                if (settings.cookies.isEmpty()) {
+                    return@launch
+                }
+
+                playlistRepository.create(title, description, privacy, settings)
+                    .collect { apiResult ->
+                        if (apiResult !is ApiResult.Success || apiResult.data == null) {
+                            return@collect
+                        }
+
+                        val currentState = _uiState.value.screenState
+                        if (currentState !is ScreenState.LoggedIn) {
+                            return@collect
+                        }
+
+                        val updatedPlaylists = currentState.playlistInfos
+                            .toMutableList()
+                            .apply {
+                                add(index = 2.coerceAtMost(size), element = apiResult.data)
+                            }
+
+                        _uiState.update {
+                            it.copy(
+                                screenState = currentState.copy(
+                                    playlistInfos = updatedPlaylists
+                                )
+                            )
+                        }
+                    }
+            } catch (ex: Exception) {
+                printe(message = ex.toString(), exception = ex)
+            }
+        }
+    }
+
+    fun removePlaylistsFromList(playlistIds: Set<String>) {
+        _uiState.update { currentState ->
+            val loggedIn = currentState.screenState as? ScreenState.LoggedIn
+                ?: return@update currentState
+
+            currentState.copy(
+                screenState = loggedIn.copy(
+                    playlistInfos = loggedIn.playlistInfos.filterNot { playlist ->
+                        playlist.id in playlistIds
+                    }
+                )
+            )
+        }
+    }
+
+    companion object {
+        fun Factory(application: Application): ViewModelProvider.Factory = viewModelFactory {
+            initializer {
+                HomeViewModel(application)
+            }
+        }
+    }
+}

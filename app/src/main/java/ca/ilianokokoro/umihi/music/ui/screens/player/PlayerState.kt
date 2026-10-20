@@ -1,0 +1,38 @@
+package ca.ilianokokoro.umihi.music.ui.screens.player
+
+import androidx.compose.runtime.Immutable
+import ca.ilianokokoro.umihi.music.models.Song
+import ca.ilianokokoro.umihi.music.models.lyrics.Lyrics
+
+@Immutable
+data class PlayerState(
+    val queue: List<Song> = emptyList(),
+    val currentIndex: Int = -1,
+    val isPlaying: Boolean = false,
+    val isLoading: Boolean = true,
+    val isSeekBarHeld: Boolean = false,
+    val isQueueModalShown: Boolean = false,
+    val isSleepTimerModalShown: Boolean = false,
+    val sleepTimerRemainingSeconds: Long? = null,
+    val isSpeedSelectorShown: Boolean = false,
+    val playbackSpeed: Float = 1.0f,
+    val isLoggedIn: Boolean = false,
+    val isLiked: Boolean = false,
+    val isLiking: Boolean = false,
+    val showVolumeDialog: Boolean = false,
+    val appVolume: Int = 100,
+    val lyricsShown: Boolean = false,
+    val lyrics: LyricsState = LyricsState.Unloaded,
+)
+
+@Immutable
+data class PlaybackProgress(
+    val position: Float = 0f,
+    val duration: Float = 0f,
+)
+
+
+sealed class LyricsState {
+    data object Unloaded : LyricsState()
+    data class Loaded(val data: Lyrics?) : LyricsState()
+}

@@ -1,0 +1,174 @@
+package ca.ilianokokoro.umihi.music.ui.components.materialu
+
+import androidx.compose.foundation.BorderStroke
+import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.PaddingValues
+import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.RowScope
+import androidx.compose.foundation.layout.defaultMinSize
+import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.size
+import androidx.compose.material3.Button
+import androidx.compose.material3.ButtonDefaults
+import androidx.compose.material3.Icon
+import androidx.compose.material3.LocalContentColor
+import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.OutlinedButton
+import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
+import androidx.compose.material3.minimumInteractiveComponentSize
+import androidx.compose.runtime.Composable
+import androidx.compose.ui.Alignment
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.text.TextStyle
+import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.unit.Dp
+import androidx.compose.ui.unit.dp
+
+enum class MaterialUButtonSize(
+    val height: Dp,
+    val horizontalPadding: Dp,
+    val iconSize: Dp,
+    val iconSpacing: Dp
+) {
+    ExtraSmall(32.dp, 16.dp, 20.dp, 8.dp),
+    Small(40.dp, 16.dp, 20.dp, 8.dp),
+    Medium(56.dp, 24.dp, 24.dp, 8.dp),
+    Large(96.dp, 48.dp, 32.dp, 12.dp),
+    ExtraLarge(136.dp, 64.dp, 40.dp, 16.dp)
+}
+
+enum class MaterialUButtonVariant {
+    Filled,
+    Tonal,
+    Elevated,
+    Outlined,
+    Text
+}
+
+@Composable
+private fun MaterialUButtonSize.textStyle(): TextStyle {
+    val typography = MaterialTheme.typography
+    return when (this) {
+        MaterialUButtonSize.ExtraSmall,
+        MaterialUButtonSize.Small -> typography.labelLarge
+        MaterialUButtonSize.Medium -> typography.titleMedium
+        MaterialUButtonSize.Large -> typography.headlineSmall
+        MaterialUButtonSize.ExtraLarge -> typography.headlineLarge
+    }
+}
+
+
+@Composable
+fun MaterialUButton(
+    modifier: Modifier = Modifier,
+    text: String? = null,
+    icon: ImageVector? = null,
+    onClick: () -> Unit,
+    enabled: Boolean = true,
+    size: MaterialUButtonSize = MaterialUButtonSize.Medium,
+    variant: MaterialUButtonVariant = MaterialUButtonVariant.Filled,
+    iconContentDescription: String? = null
+) {
+    val hasText = !text.isNullOrBlank()
+    val iconOnly = icon != null && !hasText
+
+    val buttonModifier = modifier
+        .minimumInteractiveComponentSize()
+        .defaultMinSize(minHeight = size.height)
+        .height(size.height)
+
+    val contentPadding = PaddingValues(
+        horizontal = if (iconOnly) 0.dp else size.horizontalPadding
+    )
+
+    val content: @Composable RowScope.() -> Unit = {
+        Row(
+            horizontalArrangement = Arrangement.spacedBy(size.iconSpacing),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            if (icon != null) {
+                Icon(
+                    imageVector = icon,
+                    contentDescription = if (iconOnly) iconContentDescription else null,
+                    modifier = Modifier.size(size.iconSize),
+                    tint = LocalContentColor.current
+                )
+            }
+
+            if (hasText) {
+                Text(
+                    text = text,
+                    style = size.textStyle().copy(fontWeight = FontWeight.SemiBold),
+                    maxLines = 1
+                )
+            }
+        }
+    }
+
+    when (variant) {
+        MaterialUButtonVariant.Filled -> {
+            Button(
+                onClick = onClick,
+                enabled = enabled,
+                modifier = buttonModifier,
+                shapes = ButtonDefaults.shapes(),
+                contentPadding = contentPadding,
+                colors = ButtonDefaults.buttonColors(),
+                content = content
+            )
+        }
+
+        MaterialUButtonVariant.Tonal -> {
+            Button(
+                onClick = onClick,
+                enabled = enabled,
+                modifier = buttonModifier,
+                shapes = ButtonDefaults.shapes(),
+                contentPadding = contentPadding,
+                colors = ButtonDefaults.filledTonalButtonColors(),
+                content = content
+            )
+        }
+
+        MaterialUButtonVariant.Elevated -> {
+            Button(
+                onClick = onClick,
+                enabled = enabled,
+                modifier = buttonModifier,
+                shapes = ButtonDefaults.shapes(),
+                contentPadding = contentPadding,
+                colors = ButtonDefaults.elevatedButtonColors(),
+                elevation = ButtonDefaults.elevatedButtonElevation(),
+                content = content
+            )
+        }
+
+        MaterialUButtonVariant.Outlined -> {
+            OutlinedButton(
+                onClick = onClick,
+                enabled = enabled,
+                modifier = buttonModifier,
+                shapes = ButtonDefaults.shapes(),
+                contentPadding = contentPadding,
+                border = BorderStroke(
+                    width = 1.dp,
+                    color = MaterialTheme.colorScheme.outline
+                ),
+                content = content
+            )
+        }
+
+        MaterialUButtonVariant.Text -> {
+            TextButton(
+                onClick = onClick,
+                enabled = enabled,
+                modifier = buttonModifier,
+                shapes = ButtonDefaults.shapes(),
+                contentPadding = contentPadding,
+                content = content
+            )
+        }
+    }
+}

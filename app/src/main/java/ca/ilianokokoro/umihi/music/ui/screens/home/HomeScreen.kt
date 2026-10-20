@@ -1,0 +1,194 @@
+package ca.ilianokokoro.umihi.music.ui.screens.home
+
+import android.app.Application
+import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.PaddingValues
+import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.WindowInsets
+import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.lazy.grid.GridCells
+import androidx.compose.foundation.lazy.grid.GridItemSpan
+import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
+import androidx.compose.foundation.lazy.grid.itemsIndexed
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.rounded.PlaylistAdd
+import androidx.compose.material3.ExperimentalMaterial3ExpressiveApi
+import androidx.compose.material3.Scaffold
+import androidx.compose.material3.Text
+import androidx.compose.material3.pulltorefresh.PullToRefreshBox
+import androidx.compose.material3.pulltorefresh.PullToRefreshDefaults
+import androidx.compose.material3.pulltorefresh.rememberPullToRefreshState
+import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.collectAsState
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
+import androidx.compose.ui.Alignment
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.text.style.TextAlign
+import androidx.compose.ui.unit.dp
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import androidx.lifecycle.viewmodel.compose.viewModel
+import ca.ilianokokoro.umihi.music.R
+import ca.ilianokokoro.umihi.music.core.Constants
+import ca.ilianokokoro.umihi.music.core.helpers.ComposeHelper
+import ca.ilianokokoro.umihi.music.models.PlaylistInfo
+import ca.ilianokokoro.umihi.music.ui.components.ErrorMessage
+import ca.ilianokokoro.umihi.music.ui.components.FadingStatusBarWrapper
+import ca.ilianokokoro.umihi.music.ui.components.LoadingAnimation
+import ca.ilianokokoro.umihi.music.ui.components.LoginBanner
+import ca.ilianokokoro.umihi.music.ui.components.bottomsheet.PlaylistCreationBottomSheet
+import ca.ilianokokoro.umihi.music.ui.components.materialu.MaterialUButton
+import ca.ilianokokoro.umihi.music.ui.components.playlist.PlaylistCard
+import ca.ilianokokoro.umihi.music.ui.navigation.viewmodels.SharedViewModel
+
+@OptIn(ExperimentalMaterial3ExpressiveApi::class)
+@Composable
+fun HomeScreen(
+    sharedViewModel: SharedViewModel,
+    onPlaylistPressed: (playlistInfo: PlaylistInfo) -> Unit,
+    onLoginPressed: () -> Unit,
+    application: Application,
+    homeViewModel: HomeViewModel = viewModel(
+        factory =
+            HomeViewModel.Factory(application = application)
+    )
+
+) {
+    val uiState = homeViewModel.uiState.collectAsStateWithLifecycle().value
+
+    var createPlaylistOpen by remember { mutableStateOf(false) }
+
+    val deletedPlaylistIds by sharedViewModel.deletedPlaylistIds.collectAsState()
+    val playlistRefreshNeeded by sharedViewModel.playlistRefreshNeeded.collectAsState()
+
+    LaunchedEffect(deletedPlaylistIds, playlistRefreshNeeded) {
+        when {
+            playlistRefreshNeeded -> {
+                homeViewModel.refreshPlaylists()
+                sharedViewModel.consumePlaylistRefresh()
+                sharedViewModel.consumeDeletedPlaylists()
+            }
+
+            deletedPlaylistIds.isNotEmpty() -> {
+                homeViewModel.removePlaylistsFromList(deletedPlaylistIds)
+                sharedViewModel.consumeDeletedPlaylists()
+            }
+        }
+    }
+
+    FadingStatusBarWrapper { statusBarHeight ->
+        Scaffold(
+            contentWindowInsets = WindowInsets(0.dp),
+        ) { paddingValues ->
+            Column(
+                modifier = Modifier
+                    .fillMaxSize(),
+                horizontalAlignment = Alignment.CenterHorizontally,
+                verticalArrangement = Arrangement.Center
+            ) {
+                when (uiState.screenState) {
+                    is ScreenState.LoggedIn -> {
+                        val loggedIn = uiState.screenState
+                        val playlists = loggedIn.playlistInfos.filter { !it.hidden }
+                        val pullToRefreshState = rememberPullToRefreshState()
+
+
+                        if (playlists.isEmpty()) {
+                            Text(
+                                stringResource(R.string.no_playlists),
+                                textAlign = TextAlign.Center
+                            )
+                        } else {
+                            PullToRefreshBox(
+                                isRefreshing = uiState.isRefreshing,
+                                state = pullToRefreshState,
+                                indicator = {
+                                    PullToRefreshDefaults.LoadingIndicator(
+                                        state = pullToRefreshState,
+                                        isRefreshing = uiState.isRefreshing,
+                                        Modifier.align(Alignment.TopCenter)
+                                    )
+                                },
+                                onRefresh = homeViewModel::refreshPlaylists
+                            ) {
+                                LazyVerticalGrid(
+                                    modifier = Modifier.fillMaxSize(),
+                                    columns = GridCells.Adaptive(minSize = 150.dp),
+                                    verticalArrangement = Arrangement.spacedBy(12.dp),
+                                    horizontalArrangement = Arrangement.spacedBy(12.dp),
+                                    contentPadding = PaddingValues(
+                                        top = paddingValues.calculateTopPadding() + statusBarHeight + 8.dp,
+                                        bottom = Constants.Ui.SCROLLABLE_BOTTOM_PADDING,
+                                        end = 8.dp,
+                                        start = 8.dp
+                                    )
+
+                                ) {
+                                    item(span = { GridItemSpan(maxLineSpan) }) {
+                                        if (loggedIn.isLoggedIn) {
+                                            Row(horizontalArrangement = Arrangement.End) {
+                                                MaterialUButton(
+                                                    onClick = {
+                                                        createPlaylistOpen = true
+                                                    },
+                                                    icon = Icons.AutoMirrored.Rounded.PlaylistAdd,
+                                                    text = stringResource(R.string.create_playlist)
+                                                )
+                                            }
+                                        } else {
+                                            LoginBanner(
+                                                onLoginPressed = onLoginPressed
+                                            )
+                                        }
+                                    }
+                                    itemsIndexed(
+                                        items = playlists,
+                                        key = { index, playlist ->
+                                            ComposeHelper.getLazyKey(
+                                                playlist,
+                                                playlist.id,
+                                                index
+                                            )
+                                        }
+                                    ) { _, playlist ->
+                                        PlaylistCard(
+                                            playlistInfo = playlist,
+                                            onClicked = { onPlaylistPressed(playlist) },
+                                            songCount = if (playlist.isDownloadedPlaylist) {
+                                                uiState.downloadedSongsCount
+                                            } else {
+                                                playlist.songCount
+                                            }
+                                        )
+                                    }
+                                }
+                            }
+                        }
+                    }
+
+                    ScreenState.Loading -> LoadingAnimation()
+                    is ScreenState.Error -> ErrorMessage(
+                        ex = uiState.screenState.exception,
+                        onRetry = homeViewModel::getPlaylists
+                    )
+
+                }
+                if (createPlaylistOpen) {
+                    PlaylistCreationBottomSheet(
+                        onClose = { createPlaylistOpen = false },
+                        onConfirm = { title, description, privacy ->
+                            homeViewModel.createPlaylist(title, description, privacy)
+                            createPlaylistOpen = false
+                        })
+
+                }
+            }
+        }
+    }
+
+}

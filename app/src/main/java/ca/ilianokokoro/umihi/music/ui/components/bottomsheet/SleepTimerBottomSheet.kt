@@ -1,0 +1,196 @@
+package ca.ilianokokoro.umihi.music.ui.components.bottomsheet
+
+import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.padding
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.rounded.Timer
+import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.ModalBottomSheet
+import androidx.compose.material3.SheetValue
+import androidx.compose.material3.Slider
+import androidx.compose.material3.Surface
+import androidx.compose.material3.Text
+import androidx.compose.material3.rememberBottomSheetState
+import androidx.compose.material3.rememberSliderState
+import androidx.compose.runtime.Composable
+import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.ui.Alignment
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.hapticfeedback.HapticFeedbackType
+import androidx.compose.ui.platform.LocalHapticFeedback
+import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.unit.dp
+import ca.ilianokokoro.umihi.music.R
+import ca.ilianokokoro.umihi.music.core.Constants
+import ca.ilianokokoro.umihi.music.ui.components.SheetHeader
+import ca.ilianokokoro.umihi.music.ui.components.materialu.MaterialUButton
+import ca.ilianokokoro.umihi.music.ui.components.materialu.MaterialUButtonSize
+import ca.ilianokokoro.umihi.music.ui.components.materialu.MaterialUButtonVariant
+import kotlinx.coroutines.launch
+import kotlin.math.roundToInt
+
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+fun SleepTimerBottomSheet(
+    changeVisibility: (visible: Boolean) -> Unit,
+    modifier: Modifier = Modifier,
+    activeRemainingSeconds: Long?,
+    onStartTimer: (minutes: Int) -> Unit,
+    onStartEndOfSong: () -> Unit,
+    onCancelTimer: () -> Unit,
+) {
+    val haptic = LocalHapticFeedback.current
+    val scope = rememberCoroutineScope()
+
+    val sheetState = rememberBottomSheetState(
+        initialValue = SheetValue.Hidden,
+        enabledValues = setOf(
+            SheetValue.Hidden, SheetValue.Expanded
+        )
+    )
+
+    fun dismiss() {
+        scope.launch { sheetState.hide() }.invokeOnCompletion { changeVisibility(false) }
+    }
+
+    ModalBottomSheet(
+        onDismissRequest = { dismiss() },
+        sheetState = sheetState,
+    ) {
+        Column(
+            modifier = modifier
+                .fillMaxWidth()
+                .padding(start = 24.dp, end = 24.dp, top = 16.dp, bottom = 40.dp),
+            verticalArrangement = Arrangement.spacedBy(16.dp),
+        ) {
+            if (activeRemainingSeconds != null) {
+                val minutes = activeRemainingSeconds / 60
+                val seconds = activeRemainingSeconds % 60
+
+                SheetHeader(
+                    icon = Icons.Rounded.Timer,
+                    title = stringResource(R.string.sleep_timer_active),
+                )
+
+                Surface(
+                    shape = MaterialTheme.shapes.medium,
+                    color = MaterialTheme.colorScheme.primaryContainer,
+                    modifier = Modifier.fillMaxWidth(),
+                ) {
+                    Row(
+                        modifier = Modifier.padding(16.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(12.dp),
+                    ) {
+                        Text(
+                            text = "%d:%02d".format(minutes, seconds),
+                            style = MaterialTheme.typography.headlineLarge,
+                            fontWeight = FontWeight.Bold,
+                            color = MaterialTheme.colorScheme.onPrimaryContainer,
+                        )
+                        Text(
+                            text = stringResource(R.string.sleep_timer_remaining),
+                            style = MaterialTheme.typography.bodyMedium,
+                            color = MaterialTheme.colorScheme.onPrimaryContainer,
+                        )
+                    }
+                }
+
+                MaterialUButton(
+                    onClick = {
+                        onCancelTimer()
+                        dismiss()
+                    },
+                    modifier = Modifier.fillMaxWidth(),
+                    text = stringResource(R.string.cancel_timer),
+                    size = MaterialUButtonSize.Small,
+                )
+            } else {
+                val range =
+                    Constants.Ui.Player.SleepTimer.STEP_VALUE.toFloat()..(Constants.Ui.Player.SleepTimer.STEP_VALUE * Constants.Ui.Player.SleepTimer.STEP_AMOUNT).toFloat()
+
+                val sliderState = rememberSliderState(
+                    value = Constants.Ui.Player.SleepTimer.DEFAULT_VALUE.toFloat(),
+                    trackRange = range,
+                    steps = Constants.Ui.Player.SleepTimer.STEP_AMOUNT - 2,
+                )
+
+
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                ) {
+                    SheetHeader(
+                        icon = Icons.Rounded.Timer,
+                        title = stringResource(R.string.sleep_timer),
+                        modifier = Modifier.weight(1f),
+                    )
+                    Text(
+                        text = stringResource(R.string.minutes, sliderState.value.roundToInt()),
+                        style = MaterialTheme.typography.titleLarge,
+                        fontWeight = FontWeight.ExtraBold,
+                        color = MaterialTheme.colorScheme.primary,
+                    )
+                }
+
+                Slider(
+                    state = sliderState,
+                    onValueChange = { newValue ->
+                        if (sliderState.value != newValue) {
+                            haptic.performHapticFeedback(HapticFeedbackType.SegmentFrequentTick)
+                        }
+                        sliderState.value = newValue
+                    },
+                    modifier = Modifier.fillMaxWidth(),
+                )
+
+                val minLabel = Constants.Ui.Player.SleepTimer.STEP_VALUE
+                val maxLabel =
+                    Constants.Ui.Player.SleepTimer.STEP_VALUE * Constants.Ui.Player.SleepTimer.STEP_AMOUNT
+
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                ) {
+                    Text(
+                        text = stringResource(R.string.short_minutes, minLabel),
+                        style = MaterialTheme.typography.labelSmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                    Text(
+                        text = stringResource(R.string.short_minutes, maxLabel),
+                        style = MaterialTheme.typography.labelSmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                }
+
+                MaterialUButton(
+                    onClick = {
+                        onStartTimer(sliderState.value.roundToInt())
+                        dismiss()
+                    },
+                    modifier = Modifier.fillMaxWidth(),
+                    text = stringResource(R.string.sleep_timer_start),
+                    size = MaterialUButtonSize.Small,
+                )
+
+                MaterialUButton(
+                    onClick = {
+                        onStartEndOfSong()
+                        dismiss()
+                    },
+                    modifier = Modifier.fillMaxWidth(),
+                    text = stringResource(R.string.sleep_timer_end_of_song_btn),
+                    size = MaterialUButtonSize.Small,
+                    variant = MaterialUButtonVariant.Tonal,
+                )
+            }
+        }
+    }
+}

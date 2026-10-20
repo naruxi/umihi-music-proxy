@@ -1,0 +1,71 @@
+package ca.ilianokokoro.umihi.music.ui.screens.auth
+
+import android.app.Application
+import android.webkit.CookieManager
+import androidx.lifecycle.AndroidViewModel
+import androidx.lifecycle.ViewModelProvider
+import androidx.lifecycle.viewModelScope
+import androidx.lifecycle.viewmodel.initializer
+import androidx.lifecycle.viewmodel.viewModelFactory
+import ca.ilianokokoro.umihi.music.core.Constants
+import ca.ilianokokoro.umihi.music.core.helpers.LogHelper.printd
+import ca.ilianokokoro.umihi.music.core.helpers.UmihiHelper.isNullOrInvalidId
+import ca.ilianokokoro.umihi.music.data.repositories.DatastoreRepository
+import ca.ilianokokoro.umihi.music.models.Cookies
+import kotlinx.coroutines.flow.MutableSharedFlow
+import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.asSharedFlow
+import kotlinx.coroutines.flow.update
+import kotlinx.coroutines.launch
+
+class AuthViewModel(application: Application) : AndroidViewModel(application) {
+    private val _uiState = MutableStateFlow(SettingsState())
+    //  val uiState = _uiState.asStateFlow()
+
+    private val _eventsChannel = MutableSharedFlow<ScreenEvent.Out>()
+    val eventFlow = _eventsChannel.asSharedFlow()
+    private val datastoreRepository = DatastoreRepository(application)
+
+    fun onPageFinished(url: String?) {
+        viewModelScope.launch {
+            if (url?.contains(Constants.Auth.END_URL) == true && !_uiState.value.isLoggedIn) {
+                val cookies = CookieManager.getInstance().getCookie(url).orEmpty()
+                saveCookies(Cookies(cookies))
+                _uiState.update { it.copy(isLoggedIn = true) }
+                _eventsChannel.emit(ScreenEvent.Out.LoginCompleted)
+            }
+        }
+    }
+
+    fun onDataSyncIdFound(result: String) {
+        viewModelScope.launch {
+            result
+                .trim('"')
+                .substringBefore("||")
+                .takeUnless { it.isNullOrInvalidId() }
+                ?.let { datastoreRepository.saveDataSyncId(it) }
+        }
+    }
+
+    private fun saveCookies(cookies: Cookies) {
+        printd("Got cookies: $cookies")
+        viewModelScope.launch {
+            datastoreRepository.saveCookies(cookies)
+        }
+    }
+
+    sealed interface ScreenEvent {
+        sealed class Out {
+            data object LoginCompleted : Out()
+        }
+    }
+
+    companion object {
+        fun Factory(application: Application): ViewModelProvider.Factory = viewModelFactory {
+            initializer {
+                AuthViewModel(application)
+            }
+        }
+    }
+
+}

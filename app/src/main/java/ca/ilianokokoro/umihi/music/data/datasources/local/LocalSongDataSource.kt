@@ -1,0 +1,92 @@
+package ca.ilianokokoro.umihi.music.data.datasources.local
+
+import androidx.room.Dao
+import androidx.room.Delete
+import androidx.room.Query
+import androidx.room.Upsert
+import ca.ilianokokoro.umihi.music.models.Song
+import kotlinx.coroutines.flow.Flow
+
+@Dao
+interface LocalSongDataSource {
+    @Upsert
+    suspend fun create(song: Song)
+
+    @Upsert
+    suspend fun createAll(songs: List<Song>)
+
+    @Query(
+        """
+    SELECT * 
+    FROM songs 
+    WHERE audioFilePath IS NOT NULL 
+      AND thumbnailPath IS NOT NULL
+      ORDER BY  
+        songs.title COLLATE NOCASE ASC,
+        songs.artists COLLATE NOCASE ASC
+"""
+    )
+    suspend fun getDownloadedSongs(): List<Song>
+
+    @Query(
+        """
+    SELECT COUNT(*)
+    FROM songs
+    WHERE audioFilePath IS NOT NULL
+      AND thumbnailPath IS NOT NULL
+"""
+    )
+    suspend fun countDownloadedSongs(): Int
+
+    @Query(
+        """
+    SELECT COUNT(*)
+    FROM songs
+    WHERE audioFilePath IS NOT NULL
+      AND thumbnailPath IS NOT NULL
+"""
+    )
+    fun countDownloadedSongsFlow(): Flow<Int>
+
+    @Query(
+        """
+    SELECT *
+    FROM songs
+    WHERE (title LIKE '%' || :query || '%'
+        OR artists LIKE '%' || :query || '%')
+      AND audioFilePath IS NOT NULL
+      AND thumbnailPath IS NOT NULL
+    ORDER BY title COLLATE NOCASE ASC
+"""
+    )
+    suspend fun searchDownloaded(query: String): List<Song>
+
+    @Query("SELECT * FROM songs WHERE youtubeId = :songId")
+    suspend fun getSong(songId: String): Song?
+
+    @Query("SELECT * FROM songs WHERE youtubeId IN (:songIds)")
+    suspend fun getSongsByYoutubeIds(songIds: List<String>): List<Song>
+
+    @Query("DELETE FROM songs")
+    suspend fun deleteAll()
+
+    suspend fun setStreamUrl(songId: String, streamUrl: String) {
+        val existing = getSong(songId) ?: Song(
+            youtubeId = songId,
+            streamUrl = streamUrl
+        )
+
+        val updated = existing.copy(streamUrl = streamUrl)
+        create(updated)
+    }
+
+    @Query("DELETE FROM songs WHERE youtubeId IN (:songIds)")
+    suspend fun deleteByIds(songIds: List<String>)
+
+    @Delete
+    suspend fun delete(song: Song)
+
+    @Query("UPDATE songs SET audioFilePath = :audioPath WHERE youtubeId = :songId")
+    suspend fun updateAudioPath(songId: String, audioPath: String?)
+
+}
