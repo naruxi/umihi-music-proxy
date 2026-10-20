@@ -219,7 +219,38 @@ object Constants {
     object Player {
         const val PROGRESS_UPDATE_DELAY = 150
         const val IMAGE_TRANSITION_DELAY = 200
-        const val PRELOAD_DURATION = 5_000_000L
+
+        /**
+         * How much of the next item ExoPlayer keeps warm before the current one ends.
+         *
+         * Every track streams from its own googlevideo host, so the transition pays a fresh TLS
+         * handshake — measured at 0.3s to 3.6s over a relayed proxy, against 0.1s on a socket that
+         * is already open. Five seconds of lead time was not enough to hide that: preloading
+         * started, and the handshake was still in flight when the track changed. Twelve seconds
+         * is 200KB of audio and covers the slow end of that spread.
+         */
+        const val PRELOAD_DURATION = 12_000_000L
+
+        /**
+         * Wait before resolving the following track in the background.
+         *
+         * Long enough that the current track has finished starting up and the two are not
+         * competing for the tunnel, short enough that the answer is always ready well before the
+         * track actually changes.
+         */
+        const val PREFETCH_DELAY_MS = 4_000L
+
+        /**
+         * Load retries before ExoPlayer gives up on a track.
+         *
+         * The default is three, with a one-second floor and a five-second cap on the backoff —
+         * about eleven seconds of tolerance in total. A relay that drops a socket for half a
+         * minute therefore ends the track even though the 60s buffer had not run dry yet. Eight
+         * retries push that tolerance past the length of the buffer, which is the point where the
+         * listener stops noticing at all.
+         */
+        const val LOAD_RETRY_COUNT = 8
+
         val SPEEDS = listOf(0.25f, 0.5f, 0.75f, 1f, 2f, 3f, 5f)
 
         /**

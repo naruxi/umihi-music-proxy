@@ -28,6 +28,7 @@ import androidx.media3.exoplayer.DefaultLoadControl
 import androidx.media3.exoplayer.ExoPlayer
 import androidx.media3.exoplayer.analytics.AnalyticsListener
 import androidx.media3.exoplayer.source.DefaultMediaSourceFactory
+import androidx.media3.exoplayer.upstream.DefaultLoadErrorHandlingPolicy
 import androidx.media3.session.CacheBitmapLoader
 import androidx.media3.session.MediaLibraryService
 import androidx.media3.session.MediaSession
@@ -46,7 +47,9 @@ import ca.ilianokokoro.umihi.music.extensions.cappedTo
 import ca.ilianokokoro.umihi.music.models.PlaybackAudioInfo
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
@@ -62,9 +65,11 @@ class PlaybackService : MediaLibraryService() {
     private var currentAudioSessionId = C.AUDIO_SESSION_ID_UNSET
     private lateinit var songRepository: SongRepository
     private lateinit var playlistRepository: PlaylistRepository
+    private lateinit var streamSourceFactory: YoutubeDataSourceFactory
     private val serviceScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
     private var loudnessEnhancer: LoudnessEnhancer? = null
     private var currentVolumePercent: Int = Constants.Player.Volume.DEFAULT_PERCENT
+    private var prefetchJob: Job? = null
 
     private lateinit var callback: UmihiMediaLibraryCallback
 
@@ -86,6 +91,7 @@ class PlaybackService : MediaLibraryService() {
             .setUpstreamDataSourceFactory(defaultDataSourceFactory)
             .setFlags(CacheDataSource.FLAG_IGNORE_CACHE_ON_ERROR)
         val resolvingFactory = YoutubeDataSourceFactory(application, cacheDataSourceFactory)
+        streamSourceFactory = resolvingFactory
 
         val audioOffloadPreferences =
             TrackSelectionParameters.AudioOffloadPreferences.Builder()
@@ -118,7 +124,12 @@ class PlaybackService : MediaLibraryService() {
             .setHandleAudioBecomingNoisy(true)
             .setDeviceVolumeControlEnabled(true)
             .setLoadControl(loadControl)
-            .setMediaSourceFactory(DefaultMediaSourceFactory(resolvingFactory))
+            .setMediaSourceFactory(
+                DefaultMediaSourceFactory(resolvingFactory)
+                    .setLoadErrorHandlingPolicy(
+                        DefaultLoadErrorHandlingPolicy(Constants.Player.LOAD_RETRY_COUNT)
+                    )
+            )
             .build()
 
         player.preloadConfiguration =
@@ -183,6 +194,7 @@ class PlaybackService : MediaLibraryService() {
             ) {
                 PlayerManager.updatePlaybackInfo(PlaybackAudioInfo())
                 updateCurrentMediaItemThumbnail(mediaItem)
+                prefetchNextTrack()
                 val songId = mediaItem?.mediaId ?: return
                 serviceScope.launch {
                     val settings = datastoreRepository.getSettings()
@@ -350,6 +362,30 @@ class PlaybackService : MediaLibraryService() {
             mediaLibrarySession = null
         }
         super.onDestroy()
+    }
+
+    /**
+     * Moves the next track's resolution and TLS handshake off the transition that needs them.
+     *
+     * Runs a few seconds into the current track so the two do not compete for the tunnel, and is
+     * cancelled and restarted whenever the track changes, which also covers the case of a queue
+     * the listener keeps skipping through.
+     */
+    private fun prefetchNextTrack() {
+        prefetchJob?.cancel()
+        if (!::streamSourceFactory.isInitialized) return
+
+        val next = player.currentMediaItemIndex + 1
+        if (next <= 0 || next >= player.mediaItemCount) return
+
+        val nextUri = player.getMediaItemAt(next).localConfiguration?.uri?.toString() ?: return
+
+        prefetchJob = serviceScope.launch {
+            delay(Constants.Player.PREFETCH_DELAY_MS)
+            // A failed prefetch is only ever a missed optimisation; it must not reach the
+            // uncaught-exception handler, where a supervisor job would turn it into a crash.
+            runCatching { streamSourceFactory.prefetch(nextUri) }
+        }
     }
 
     private fun updateCurrentMediaItemThumbnail(mediaItem: MediaItem?) {

@@ -1,31 +1,42 @@
 package ca.ilianokokoro.umihi.music.data.repositories
 
+import ca.ilianokokoro.umihi.music.core.helpers.LogHelper.printe
 import ca.ilianokokoro.umihi.music.core.youtube.YoutubeApiClient
 import ca.ilianokokoro.umihi.music.core.youtube.YoutubeDataExtractor
 import ca.ilianokokoro.umihi.music.models.Song
 import ca.ilianokokoro.umihi.music.models.lyrics.Lyrics
 import ca.ilianokokoro.umihi.music.models.lyrics.LyricsQuery
 import ca.ilianokokoro.umihi.music.models.lyrics.TrackCredits
-import ca.ilianokokoro.umihi.music.models.lyrics.providers.BetterLyricsProvider
-import ca.ilianokokoro.umihi.music.models.lyrics.providers.LrcLibProvider
+import ca.ilianokokoro.umihi.music.models.lyrics.providers.LyricsProviders
+import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.channels.Channel
+import kotlinx.coroutines.joinAll
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.withTimeout
+import kotlinx.coroutines.withTimeoutOrNull
 
 class LyricsRepository {
     /**
      * Lyrics for [song], or null when nothing could be matched.
      *
-     * The order reflects how much we trust each source of information: the scrubbed variants of
-     * the title and artist first, then the untouched values, then the credit block YouTube puts
-     * inside auto-generated videos. Each step only runs when the one before it found nothing, so
-     * a clean music-catalog song still costs a single lookup.
+     * Two passes. The first asks every provider at once with the scrubbed title and artist
+     * variants; the second only runs when that found nothing and asks them again with the credit
+     * block YouTube puts inside auto-generated videos, which stays accurate even when the search
+     * result handed us a channel name and a title wearing its marketing tail.
+     *
+     * Racing the providers is what makes five sources affordable: the answer arrives as soon as
+     * the fastest one has it, instead of after four misses in series. Over a relayed proxy the
+     * spread between "fastest" and "slowest" is seconds, so serial lookups were what made lyrics
+     * feel like they never loaded.
      */
     suspend fun getLyrics(song: Song): Lyrics? {
         val candidates = LyricsQuery.candidatesFrom(song).ifEmpty { return null }
 
-        for (query in candidates) {
-            LRC_LIB.getLyrics(query)?.let { return it }
-        }
-
-        BETTER_LYRICS.getLyrics(candidates.first())?.let { return it }
+        lookup(candidates)?.let { return it }
 
         val credits = creditsFor(song) ?: return null
         val creditQuery = LyricsQuery(
@@ -35,8 +46,49 @@ class LyricsRepository {
             album = credits.album,
         )
 
-        LRC_LIB.getLyrics(creditQuery)?.let { return it }
-        return BETTER_LYRICS.getLyrics(creditQuery)
+        return lookup(listOf(creditQuery))
+    }
+
+    /**
+     * First hit across [LyricsProviders.all], or null once every provider has given up.
+     *
+     * The providers run on a detached supervisor job rather than on the caller's scope: their
+     * HTTP calls are blocking, so a scope tied to the caller would keep the caller waiting for
+     * the slowest source even after a hit had already arrived. Nothing outlives the lookup for
+     * longer than one request — each call carries its own timeout.
+     */
+    private suspend fun lookup(queries: List<LyricsQuery>): Lyrics? {
+        inFlight?.cancel()
+        val supervisor = SupervisorJob()
+        inFlight = supervisor
+
+        val hits = Channel<Lyrics>(Channel.UNLIMITED)
+        val scope = CoroutineScope(supervisor + Dispatchers.IO)
+
+        val jobs = LyricsProviders.all.map { provider ->
+            scope.launch {
+                val found = try {
+                    withTimeout(PROVIDER_TIMEOUT_MS) { provider.getLyrics(queries) }
+                } catch (c: CancellationException) {
+                    throw c
+                } catch (t: Throwable) {
+                    printe("${provider.name} lyrics lookup failed: ${t.message}")
+                    null
+                }
+                if (found != null) {
+                    hits.trySend(found)
+                }
+            }
+        }
+
+        scope.launch {
+            jobs.joinAll()
+            hits.close()
+        }
+
+        val result = withTimeoutOrNull(TOTAL_TIMEOUT_MS) { hits.receiveCatching().getOrNull() }
+        supervisor.cancel()
+        return result
     }
 
     /**
@@ -65,8 +117,14 @@ class LyricsRepository {
         private const val PLAYER_FIELDS = "videoDetails"
         private const val MAX_CACHED_CREDITS = 128
 
-        private val LRC_LIB = LrcLibProvider()
-        private val BETTER_LYRICS = BetterLyricsProvider()
+        /** How long one source may take before the lookup stops waiting on it. */
+        private const val PROVIDER_TIMEOUT_MS = 9_000L
+
+        /** Ceiling for the whole lookup, so a wall of timeouts still resolves. */
+        private const val TOTAL_TIMEOUT_MS = 10_000L
+
+        @Volatile
+        private var inFlight: Job? = null
 
         /** Access-ordered so the eldest entry is the least recently used one. */
         private val creditsCache =
