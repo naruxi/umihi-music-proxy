@@ -49,7 +49,7 @@ class QqMusicProvider(
             .addQueryParameter("n", HITS_PER_QUERY)
             .addQueryParameter("p", "1")
             .addQueryParameter("t", "0")
-            .addQueryParameter("w", keywordOf(query))
+            .addQueryParameter("w", query.keyword)
             .build()
 
         val body = LyricsHttp.get(url, REFERER) ?: return null
@@ -94,8 +94,6 @@ class QqMusicProvider(
         {"comm":{"ct":24,"cv":0},"req":{"module":"music.musichallSong.PlayLyricInfo","method":"GetPlayLyricInfo","param":{"songMID":"$mid","songID":0}}}
     """.trimIndent()
 
-    private fun keywordOf(query: LyricsQuery): String =
-        if (query.artist.isBlank()) query.title else "${query.title} ${query.artist}"
 
     private companion object {
         const val HITS_PER_QUERY = "10"

@@ -44,7 +44,7 @@ class NetEaseProvider(
 
     private fun bestMatch(query: LyricsQuery): String? {
         val url = SEARCH_URL.newBuilder()
-            .addQueryParameter("s", keywordOf(query))
+            .addQueryParameter("s", query.keyword)
             .addQueryParameter("type", "1")
             .addQueryParameter("offset", "0")
             .addQueryParameter("limit", HITS_PER_QUERY)
@@ -90,8 +90,6 @@ class NetEaseProvider(
         }
     }
 
-    private fun keywordOf(query: LyricsQuery): String =
-        if (query.artist.isBlank()) query.title else "${query.title} ${query.artist}"
 
     private companion object {
         const val HITS_PER_QUERY = "10"

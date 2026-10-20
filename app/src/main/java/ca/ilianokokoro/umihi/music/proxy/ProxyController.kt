@@ -43,6 +43,10 @@ object ProxyController {
         val notice: String? = null,
         /** Crash/trace report surfaced after an abnormal shutdown; cleared once dismissed. */
         val diagnostics: String? = null,
+        /** Node key -> what that node could reach when it was last measured. */
+        val probes: Map<String, ProbeResult> = emptyMap(),
+        /** Node currently being measured, so the list can show progress on that one row. */
+        val probingKey: String? = null,
     )
 
     /**
@@ -193,7 +197,76 @@ object ProxyController {
 
         if (_status.value.enabled) {
             startTunnel(app, _status.value.nodes, node.key)
+            // The tunnel was just restarted on this node, so measuring it costs nothing extra —
+            // and its verdict is the reason this screen exists.
+            scope.launch { probeNode(app, node) }
         }
+    }
+
+    // ----------------------------------------------------------------- probe
+
+    /**
+     * Measures what [node] can reach and remembers the verdict for the list.
+     *
+     * There is only one tunnel in the process, so measuring a node that is not the active one
+     * means bringing it up and then putting the previously selected node back; playback breaks
+     * for the duration. Measuring the node already in use restarts nothing, which is why that
+     * row answers immediately.
+     *
+     * A node cannot be judged by a TCP handshake alone: several exits carry plain YouTube
+     * traffic while answering the music catalog with an empty shelf, and telling those apart is
+     * the entire point — see [ProbeResult].
+     */
+    suspend fun probeNode(context: Context, node: ProxyNode) {
+        val app = context.applicationContext
+        boundContext = app
+
+        if (!_status.value.enabled) {
+            _status.update { it.copy(notice = "先打开代理再检测节点") }
+            return
+        }
+
+        val previousKey = _status.value.selectedKey
+        val alreadyActive = _status.value.running && node.key == previousKey
+
+        _status.update { it.copy(probingKey = node.key, error = null, notice = null) }
+
+        withContext(Dispatchers.IO) {
+            try {
+                if (!alreadyActive) {
+                    ProxyEngine.start(app, node)
+                    // The exit just changed; pooled sockets still belong to the old one.
+                    UmihiHttpClient.dropConnections()
+                }
+
+                val result = ProxyProbe.measure()
+                _status.update { it.copy(probes = it.probes + (node.key to result)) }
+            } catch (c: CancellationException) {
+                throw c
+            } catch (t: Throwable) {
+                _status.update { it.copy(error = friendly(t)) }
+            } finally {
+                if (!alreadyActive) {
+                    restoreTunnel(app, previousKey, node.key)
+                }
+                _status.update { it.copy(probingKey = null) }
+            }
+        }
+    }
+
+    /** Re-measures whichever node is selected, on demand. */
+    fun reprobeSelected(context: Context) {
+        val selected = _status.value.nodes.firstOrNull { it.key == _status.value.selectedKey }
+            ?: return
+        scope.launch { probeNode(context, selected) }
+    }
+
+    /** Puts the tunnel back on [key] after a probe, unless it never left it. */
+    private suspend fun restoreTunnel(app: Context, key: String?, probedKey: String) {
+        if (key == null || key == probedKey) return
+        val back = _status.value.nodes.firstOrNull { it.key == key } ?: return
+        runCatching { ProxyEngine.start(app, back) }
+        UmihiHttpClient.dropConnections()
     }
 
     // --------------------------------------------------------- subscription

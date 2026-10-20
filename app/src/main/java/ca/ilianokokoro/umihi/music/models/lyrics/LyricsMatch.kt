@@ -15,8 +15,17 @@ import kotlin.math.abs
  * a runtime within a second or two is.
  */
 object LyricsMatch {
-    /** Below this a hit is a coincidence, not a match. */
-    const val MIN_SCORE = 90
+    /**
+     * Below this a hit is a coincidence, not a match.
+     *
+     * Set so that "the title is contained in the candidate" plus "the runtime is within a few
+     * seconds" clears it (45 + 40 = 85). That pairing is what a video-derived song can actually
+     * produce: the artist field holds a channel name that never matches, and the title still
+     * carries a tail, so the artist points are simply not there to be had. At 90 those tracks
+     * scored 85 and were thrown away — which is why Chinese songs had no lyrics at all while
+     * every individual step was working.
+     */
+    const val MIN_SCORE = 80
 
     private const val TITLE_EXACT = 80
     private const val TITLE_CONTAINS = 45

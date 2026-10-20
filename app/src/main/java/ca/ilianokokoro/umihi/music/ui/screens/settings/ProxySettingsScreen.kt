@@ -189,20 +189,43 @@ fun ProxySettingsScreen(onBack: () -> Unit) {
 
                 if (status.nodes.isNotEmpty()) {
                     item {
-                        Text(
-                            text = "节点 · ${status.nodes.size}",
-                            style = MaterialTheme.typography.titleSmall,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant,
-                            modifier = Modifier.padding(top = 16.dp, bottom = 8.dp)
-                        )
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(top = 16.dp, bottom = 8.dp)
+                        ) {
+                            Text(
+                                text = "节点 · ${status.nodes.size}",
+                                style = MaterialTheme.typography.titleSmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                modifier = Modifier.weight(1f)
+                            )
+                            TextButton(
+                                onClick = { ProxyController.reprobeSelected(context) },
+                                enabled = status.enabled && status.probingKey == null,
+                            ) {
+                                Text("检测当前")
+                            }
+                        }
                     }
 
                     // Indexed so a duplicate node key can never crash the list.
                     items(count = status.nodes.size) { index ->
                         val node = status.nodes[index]
+                        val probing = status.probingKey == node.key
+                        val probe = status.probes[node.key]
+
                         SettingsItem(
                             title = node.displayName,
-                            subtitle = "${node.type.uppercase()} · ${node.server}:${node.port}",
+                            subtitle = listOfNotNull(
+                                "${node.type.uppercase()} · ${node.server}:${node.port}",
+                                when {
+                                    probing -> "检测中…"
+                                    probe != null -> probe.summary
+                                    else -> null
+                                },
+                            ).joinToString("\n"),
                             leadingIcon = Icons.Outlined.Language,
                             trailingIcon = if (node.key == status.selectedKey) {
                                 Icons.Outlined.Check

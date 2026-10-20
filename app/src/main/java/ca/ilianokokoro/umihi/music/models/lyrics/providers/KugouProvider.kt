@@ -51,7 +51,7 @@ class KugouProvider(
     private fun bestMatch(query: LyricsQuery): Song? {
         val url = SEARCH_URL.newBuilder()
             .addQueryParameter("format", "json")
-            .addQueryParameter("keyword", keywordOf(query))
+            .addQueryParameter("keyword", query.keyword)
             .addQueryParameter("page", "1")
             .addQueryParameter("pagesize", HITS_PER_QUERY)
             .build()
@@ -126,13 +126,20 @@ class KugouProvider(
         }
     }
 
-    private fun keywordOf(query: LyricsQuery): String =
-        if (query.artist.isBlank()) query.title else "${query.title} ${query.artist}"
 
     private companion object {
         const val HITS_PER_QUERY = "10"
         const val MS_PER_SECOND = 1_000L
-        val SEARCH_URL: HttpUrl = "https://mobilecdn.kugou.com/api/v3/search/song".toHttpUrl()
+        /**
+         * `mobiles`, not the `mobilecdn` host the docs and most snippets use.
+         *
+         * `mobilecdn.kugou.com` resolves into a Tencent CDN edge that answers with a
+         * `*.cdn.myqcloud.com` certificate, which cannot validate for that hostname — every
+         * lookup died in the TLS handshake, which is why this source never returned anything
+         * on a device while the rest of the chain was fine. `mobiles` serves the same payload
+         * under a valid `*.kugou.com` certificate.
+         */
+        val SEARCH_URL: HttpUrl = "https://mobiles.kugou.com/api/v3/search/song".toHttpUrl()
         val CANDIDATE_URL: HttpUrl = "https://krcs.kugou.com/search".toHttpUrl()
         val DOWNLOAD_URL: HttpUrl = "https://lyrics.kugou.com/download".toHttpUrl()
         const val REFERER = "https://www.kugou.com/"
