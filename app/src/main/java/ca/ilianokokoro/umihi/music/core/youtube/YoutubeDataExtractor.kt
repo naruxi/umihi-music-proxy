@@ -17,6 +17,7 @@ import ca.ilianokokoro.umihi.music.models.PlaylistInfo
 import ca.ilianokokoro.umihi.music.models.PlaylistType
 import ca.ilianokokoro.umihi.music.models.Song
 import ca.ilianokokoro.umihi.music.models.UmihiSettings
+import ca.ilianokokoro.umihi.music.models.lyrics.TrackCredits
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.withContext
@@ -37,6 +38,10 @@ import kotlin.time.Duration.Companion.milliseconds
 var visitorData: String? = null
 
 object YoutubeDataExtractor {
+    private const val AUTO_GENERATED_HEADER = "Provided to YouTube by"
+    private const val CREDIT_SEPARATOR_CHAR = '·'
+    private val CREDIT_SEPARATOR = Regex("""\s*·\s*""")
+
     fun extractYouTubeVideoId(url: String): String? {
         val uri = url.toUri()
 
@@ -805,6 +810,39 @@ object YoutubeDataExtractor {
             }
     }
 
+
+    /**
+     * Reads the credit block YouTube appends to auto-generated uploads: a line of the shape
+     * `Song · Artist`, followed by the album. Hand-written descriptions do not follow it, so
+     * anything without the "Provided to YouTube by" header is rejected rather than guessed at.
+     *
+     * This matters when search handed us a channel name and a marketing title, because the
+     * credits inside the description stay correct regardless of how the video was titled.
+     */
+    fun extractDescriptionCredits(jsonString: String): TrackCredits? {
+        val description = Json.parseToJsonElement(jsonString)
+            .safeObject()?.get("videoDetails")
+            ?.safeObject()?.get("shortDescription")
+            ?.jsonPrimitive?.contentOrNull
+            ?: return null
+
+        if (!description.contains(AUTO_GENERATED_HEADER)) return null
+
+        val lines = description.lines().map { it.trim() }
+        val creditIndex = lines.indexOfFirst { it.contains(CREDIT_SEPARATOR_CHAR) }
+        if (creditIndex < 0) return null
+
+        val parts = CREDIT_SEPARATOR.split(lines[creditIndex])
+            .map { it.trim() }
+            .filter { it.isNotEmpty() }
+        if (parts.size < 2) return null
+
+        val album = lines.drop(creditIndex + 1)
+            .firstOrNull { it.isNotEmpty() && !it.startsWith("℗") && !it.startsWith("Released on") }
+            .orEmpty()
+
+        return TrackCredits(title = parts[0], artist = parts[1], album = album)
+    }
 
     fun extractSongInfo(jsonString: String): Song {
         val json = Json.parseToJsonElement(jsonString).jsonObject
