@@ -109,9 +109,12 @@ android {
             // APK came out with a different signer and updating in place failed with
             // INSTALL_FAILED_UPDATE_INCOMPATIBLE. Signing the debug variant with the release
             // key keeps the signature stable so `adb install -r` just works.
-            signingConfigs.findByName("release")?.let {
-                signingConfig = it
-            }
+            //
+            // Only when it really points at a keystore: attaching a half-configured one fails
+            // validateSigning outright rather than quietly using the debug key.
+            signingConfigs.findByName("release")
+                ?.takeIf { it.storeFile != null }
+                ?.let { signingConfig = it }
         }
 
         create("diagnostic") {
