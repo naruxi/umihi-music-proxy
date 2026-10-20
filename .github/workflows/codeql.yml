@@ -49,8 +49,28 @@ jobs:
         if: matrix.language == 'java-kotlin'
         run: chmod +x ./gradlew
 
-      - name: Set up Keystore
+      # The proxy core is a 112 MB gomobile AAR that is not in git; without it every
+      # Gradle task that touches the runtime classpath fails to resolve.
+      - name: Fetch libbox proxy core
         if: matrix.language == 'java-kotlin'
+        run: chmod +x ./scripts/fetch-libbox.sh && ./scripts/fetch-libbox.sh
+        env:
+          LIBBOX_VERSION: "1.14.3"
+
+      - name: Detect signing secrets
+        id: signing
+        if: matrix.language == 'java-kotlin'
+        env:
+          SIGNING_KEY: ${{ secrets.SIGNING_KEY }}
+        run: |
+          if [ -n "$SIGNING_KEY" ]; then
+            echo "enabled=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "enabled=false" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Set up Keystore
+        if: matrix.language == 'java-kotlin' && steps.signing.outputs.enabled == 'true'
         run:
           echo "$KEYSTORE_BASE64" | base64 -d > ${{ env.MAIN_PROJECT_MODULE }}/${{
           env.STORE_FILE }}
@@ -58,7 +78,7 @@ jobs:
           KEYSTORE_BASE64: ${{ secrets.SIGNING_KEY }}
 
       - name: Create keystore.properties
-        if: matrix.language == 'java-kotlin'
+        if: matrix.language == 'java-kotlin' && steps.signing.outputs.enabled == 'true'
         run: |
           echo "storeFile=${{ env.STORE_FILE }}" > keystore.properties
           echo "storePassword=${{ secrets.KEY_STORE_PASSWORD }}" >> keystore.properties
@@ -73,7 +93,9 @@ jobs:
 
       - name: Build
         if: matrix.language == 'java-kotlin'
-        run: ./gradlew assembleRelease -Pbeta=true -PgitHash=${{ github.sha }}
+        # Debug keeps the scan independent of signing keys and R8, both of which only
+        # affect packaging. CodeQL needs compiled bytecode, not a signed APK.
+        run: ./gradlew assembleStandaloneDebug -Pbeta=true -PgitHash=${{ github.sha }}
 
       - name: Perform CodeQL Analysis
         uses: github/codeql-action/analyze@v4

@@ -252,21 +252,11 @@ dependencies {
     // Built-in proxy
     // libbox is the sing-box mobile core (gomobile AAR, not on Maven). Fetch it once with
     // scripts/fetch-libbox.sh — it is too large to live in git.
+    //
+    // Note: do NOT add a task action here that touches this path. Configuration cache is
+    // enabled for this project, and a doFirst{} capturing a script-level value fails the
+    // build with "cannot serialize Gradle script object references".
     implementation(files("libs/libbox.aar"))
     implementation(libs.snakeyaml)
     implementation(libs.androidx.media3.datasource.okhttp)
 }
-
-/**
- * Fails fast with an actionable message when the native core has not been fetched yet,
- * instead of a wall of "unresolved reference: libbox".
- */
-val libboxAar = layout.projectDirectory.file("libs/libbox.aar").asFile
-tasks.matching { it.name.startsWith("assemble") || it.name.startsWith("bundle") }
-    .configureEach {
-        doFirst {
-            check(libboxAar.exists()) {
-                "app/libs/libbox.aar 缺失。请先运行 scripts/fetch-libbox.sh（或让 CI 下载）。"
-            }
-        }
-    }
