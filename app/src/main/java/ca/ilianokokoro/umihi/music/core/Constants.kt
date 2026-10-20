@@ -402,7 +402,8 @@ object Constants {
              * existing search parser handles both without a second code path.
              *
              * Only the audio matters here: playback resolves `streamingData.adaptiveFormats`
-             * filtered to `audio/*`, so a music video plays as its soundtrack. That is the point
+             * and keeps the highest-bitrate entry whose mime type starts with "audio/", so a
+             * music video plays as its soundtrack. That is the point
              * of exposing this vertical — uploads, live takes and covers that YouTube Music does
              * not carry as a catalog song are reachable this way.
              */
