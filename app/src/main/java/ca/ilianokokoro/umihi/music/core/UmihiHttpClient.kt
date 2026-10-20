@@ -10,7 +10,7 @@ object UmihiHttpClient {
      * Every YouTube/InnerTube/NewPipe call goes through here, so a single proxy selector here
      * covers the whole data layer: search, browse, playlists, auth, play-URL resolution.
      */
-    val client: OkHttpClient by lazy {
+    private val clientLazy = lazy {
         OkHttpClient.Builder()
             .proxySelector(ProxyRouteSelector)
             .connectTimeout(15, TimeUnit.SECONDS)
@@ -20,6 +20,8 @@ object UmihiHttpClient {
             .retryOnConnectionFailure(true)
             .build()
     }
+
+    val client: OkHttpClient by clientLazy
 
     val downloadClient: OkHttpClient by lazy {
         client.newBuilder()
@@ -39,5 +41,18 @@ object UmihiHttpClient {
         client.newBuilder()
             .proxy(Proxy.NO_PROXY)
             .build()
+    }
+
+    /**
+     * Drops pooled sockets so the next request re-consults [ProxyRouteSelector].
+     *
+     * OkHttp never re-checks the proxy for a connection it has already opened, and it holds idle
+     * connections for minutes. Without this, turning the tunnel on leaves the app talking over
+     * routes opened beforehand — which looks exactly like "the proxy does nothing".
+     * The derived clients share this pool, so evicting here covers them as well.
+     */
+    fun dropConnections() {
+        if (!clientLazy.isInitialized()) return
+        runCatching { client.connectionPool.evictAll() }
     }
 }

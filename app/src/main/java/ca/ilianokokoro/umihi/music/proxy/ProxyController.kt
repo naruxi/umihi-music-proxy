@@ -176,6 +176,11 @@ object ProxyController {
             ProxyRuntime.enabled = false
             _status.update { it.copy(running = false, port = null, nodeName = null) }
         }
+
+        // OkHttp keeps sockets it already opened and never re-consults the selector for them, so
+        // a route opened before the toggle would keep being reused — the app would look
+        // permanently unproxied until the process restarts.
+        UmihiHttpClient.dropConnections()
     }
 
     // ------------------------------------------------------------ selection
@@ -283,6 +288,8 @@ object ProxyController {
                     )
                 }
                 CrashGuard.trace("tunnel: up on 127.0.0.1:$port")
+                // Sockets opened before this node came up belong to the previous route.
+                UmihiHttpClient.dropConnections()
             } catch (c: CancellationException) {
                 _status.update { it.copy(busy = false) }
                 throw c

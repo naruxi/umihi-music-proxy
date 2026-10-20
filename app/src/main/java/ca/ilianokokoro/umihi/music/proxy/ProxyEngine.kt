@@ -95,6 +95,8 @@ object ProxyEngine {
         commandServer = server
         ProxyRuntime.port = port
         ProxyRuntime.lastError = null
+        // WebView never sees OkHttp's proxy selector, so the login screen needs its own hand-off.
+        ProxyWebView.apply(port)
         return port
     }
 
@@ -102,12 +104,14 @@ object ProxyEngine {
     fun stop() {
         stopInternal()
         ProxyRuntime.port = null
+        ProxyWebView.clear()
     }
 
     private fun stopInternal() {
         val current = commandServer ?: return
         commandServer = null
         ProxyRuntime.port = null
+        ProxyWebView.clear()
         runCatching { current.closeService() }
         runCatching { current.close() }
     }

@@ -28,6 +28,7 @@ import androidx.webkit.WebSettingsCompat
 import androidx.webkit.WebViewFeature
 import ca.ilianokokoro.umihi.music.R
 import ca.ilianokokoro.umihi.music.core.Constants
+import ca.ilianokokoro.umihi.music.proxy.ProxyWebView
 import ca.ilianokokoro.umihi.music.ui.components.BackButton
 import ca.ilianokokoro.umihi.music.ui.navigation.viewmodels.SharedViewModel
 import kotlinx.coroutines.flow.collectLatest
@@ -63,6 +64,10 @@ fun AuthScreen(
                 R.style.Theme_WebView_Light
             }
         )
+
+        // Applied before construction: a WebView that starts loading with the direct route keeps
+        // it, and Google's sign-in page simply never resolves behind the firewall.
+        ProxyWebView.syncWithRuntime()
 
         WebView(themedContext).apply {
 
