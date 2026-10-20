@@ -48,10 +48,11 @@ object ProxyWebView {
 
         runOnMain {
             runCatching {
+                // Signature is (config, executor, callback) — callback last.
                 ProxyController.getInstance().setProxyOverride(
                     config,
-                    { Log.i(TAG, "webview: proxy override -> $LOOPBACK:$port") },
-                    directExecutor
+                    directExecutor,
+                    Runnable { Log.i(TAG, "webview: proxy override -> $LOOPBACK:$port") }
                 )
             }.onFailure { Log.w(TAG, "webview: apply failed: ${it.message}") }
         }
@@ -66,8 +67,8 @@ object ProxyWebView {
         runOnMain {
             runCatching {
                 ProxyController.getInstance().clearProxyOverride(
-                    { Log.i(TAG, "webview: proxy override cleared") },
-                    directExecutor
+                    directExecutor,
+                    Runnable { Log.i(TAG, "webview: proxy override cleared") }
                 )
             }.onFailure { Log.w(TAG, "webview: clear failed: ${it.message}") }
         }
