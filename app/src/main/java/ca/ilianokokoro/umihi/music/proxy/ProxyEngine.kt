@@ -52,8 +52,10 @@ object ProxyEngine {
         options.fixAndroidStack = true
         options.debug = false
 
+        CrashGuard.trace("engine:setup begin")
         Libbox.setup(options)
         setupDone = true
+        CrashGuard.trace("engine:setup done, version=${runCatching { Libbox.version() }.getOrNull()}")
     }
 
     /**
@@ -62,23 +64,29 @@ object ProxyEngine {
      */
     @Synchronized
     fun start(context: Context, node: ProxyNode): Int {
+        CrashGuard.trace("engine:start type=${node.type} server=${node.server}:${node.port}")
         ensureSetup(context)
         stopInternal()
 
         val port = pickPort()
         val config = SingBoxConfig.build(node, port)
+        CrashGuard.trace("engine:config built, port=$port, ${config.length} chars")
 
         // Validates the JSON against the core's own schema before we spin anything up,
         // which turns config bugs into a clear message instead of an opaque core crash.
         runCatching { Libbox.checkConfig(config) }
             .onFailure { throw ProxyException("节点配置不合法: ${cleanMessage(it)}") }
+        CrashGuard.trace("engine:checkConfig ok")
 
         val server = Libbox.newCommandServer(handler, platform)
+        CrashGuard.trace("engine:commandServer created")
         try {
             server.start()
+            CrashGuard.trace("engine:commandServer started")
             val overrideOptions = OverrideOptions()
             overrideOptions.autoRedirect = false
             server.startOrReloadService(config, overrideOptions)
+            CrashGuard.trace("engine:service started, loopback=$port")
         } catch (t: Throwable) {
             runCatching { server.close() }
             throw ProxyException("启动代理失败: ${cleanMessage(t)}")

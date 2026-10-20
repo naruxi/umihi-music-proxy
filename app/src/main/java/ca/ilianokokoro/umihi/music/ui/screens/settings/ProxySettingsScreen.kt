@@ -21,16 +21,17 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
-import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import ca.ilianokokoro.umihi.music.core.Constants
@@ -39,7 +40,6 @@ import ca.ilianokokoro.umihi.music.ui.components.FadingStatusBarWrapper
 import ca.ilianokokoro.umihi.music.ui.screens.settings.components.BooleanSettingItem
 import ca.ilianokokoro.umihi.music.ui.screens.settings.components.SettingSpacer
 import ca.ilianokokoro.umihi.music.ui.screens.settings.components.SettingsItem
-import kotlinx.coroutines.launch
 
 /**
  * Subscription-driven proxy settings.
@@ -50,7 +50,6 @@ import kotlinx.coroutines.launch
 @Composable
 fun ProxySettingsScreen(onBack: () -> Unit) {
     val context = LocalContext.current
-    val scope = rememberCoroutineScope()
     val status by ProxyController.status.collectAsStateWithLifecycle()
 
     var subscriptionInput by rememberSaveable { mutableStateOf("") }
@@ -105,7 +104,7 @@ fun ProxySettingsScreen(onBack: () -> Unit) {
                         leadingIcon = Icons.Outlined.CloudQueue,
                         value = status.enabled,
                         onToggle = { enabled ->
-                            scope.launch { ProxyController.setEnabled(context, enabled) }
+                            ProxyController.toggle(context, enabled)
                         }
                     )
                 }
@@ -124,9 +123,7 @@ fun ProxySettingsScreen(onBack: () -> Unit) {
                         )
                         Button(
                             onClick = {
-                                scope.launch {
-                                    ProxyController.refreshSubscription(context, subscriptionInput)
-                                }
+                                ProxyController.importSubscription(context, subscriptionInput)
                             },
                             enabled = !status.busy,
                             modifier = Modifier
@@ -166,6 +163,30 @@ fun ProxySettingsScreen(onBack: () -> Unit) {
                     }
                 }
 
+                // Only ever populated after an abnormal shutdown, so the normal path stays clean.
+                status.diagnostics?.let { report ->
+                    item {
+                        Column(modifier = Modifier.fillMaxWidth().padding(vertical = 8.dp)) {
+                            Text(
+                                text = "诊断信息",
+                                style = MaterialTheme.typography.titleSmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                            )
+                            Text(
+                                text = report,
+                                style = MaterialTheme.typography.bodySmall.copy(
+                                    fontFamily = FontFamily.Monospace
+                                ),
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                modifier = Modifier.padding(top = 4.dp)
+                            )
+                            TextButton(onClick = { ProxyController.clearCrashReport(context) }) {
+                                Text("已查看，清除")
+                            }
+                        }
+                    }
+                }
+
                 if (status.nodes.isNotEmpty()) {
                     item {
                         Text(
@@ -189,7 +210,7 @@ fun ProxySettingsScreen(onBack: () -> Unit) {
                                 null
                             },
                             onClick = {
-                                scope.launch { ProxyController.selectNode(context, node) }
+                                ProxyController.select(context, node)
                             }
                         )
                     }

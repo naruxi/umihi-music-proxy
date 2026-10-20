@@ -6,12 +6,16 @@ import androidx.datastore.preferences.core.edit
 import androidx.datastore.preferences.core.stringPreferencesKey
 import ca.ilianokokoro.umihi.music.core.UmihiHttpClient
 import ca.ilianokokoro.umihi.music.data.repositories.dataStore
+import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.update
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import kotlinx.serialization.builtins.ListSerializer
 import kotlinx.serialization.json.Json
@@ -37,7 +41,35 @@ object ProxyController {
         val subscriptionUrl: String = "",
         val busy: Boolean = false,
         val notice: String? = null,
+        /** Crash/trace report surfaced after an abnormal shutdown; cleared once dismissed. */
+        val diagnostics: String? = null,
     )
+
+    /**
+     * Process-scoped on purpose.
+     *
+     * Loading the native core takes seconds and starting the service can outlive the screen that
+     * triggered it. Launching this work from a `rememberCoroutineScope` meant walking out of
+     * Settings cancelled the startup half-way — and, worse, reported the cancellation to the user
+     * as "the coroutine scope left the composition" instead of just finishing the job.
+     */
+    private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
+
+    fun toggle(context: Context, enabled: Boolean) {
+        scope.launch { setEnabled(context, enabled) }
+    }
+
+    fun select(context: Context, node: ProxyNode) {
+        scope.launch { selectNode(context, node) }
+    }
+
+    fun importSubscription(context: Context, url: String) {
+        scope.launch { refreshSubscription(context, url) }
+    }
+
+    fun clearDiagnostics() {
+        _status.update { it.copy(diagnostics = null) }
+    }
 
     private const val UA = "clash-verge/v2.0.0"
 
@@ -88,6 +120,46 @@ object ProxyController {
         }
     }
 
+    /**
+     * Boot path used after a session died early.
+     *
+     * The tunnel is forced off so the app can actually open, but the subscription and node list
+     * are kept: the user only has to flip the switch back on once the cause is understood.
+     */
+    suspend fun recoverFromCrash(context: Context) {
+        val app = context.applicationContext
+        boundContext = app
+
+        val prefs = runCatching { app.dataStore.data.first() }.getOrNull()
+        val wasEnabled = prefs?.get(KEY_ENABLED) ?: false
+
+        if (wasEnabled) {
+            persist { it[KEY_ENABLED] = false }
+        }
+        ProxyRuntime.enabled = false
+
+        _status.update {
+            it.copy(
+                enabled = false,
+                running = false,
+                port = null,
+                nodeName = null,
+                busy = false,
+                nodes = decodeNodes(prefs?.get(KEY_NODES)),
+                selectedKey = prefs?.get(KEY_SELECTED),
+                subscriptionUrl = prefs?.get(KEY_URL) ?: "",
+                error = "上次启动后进程异常结束，已自动关闭代理以免反复闪退。诊断信息见下方",
+                diagnostics = CrashGuard.readReport(app),
+            )
+        }
+        CrashGuard.trace("boot: crash recovery applied (wasEnabled=$wasEnabled)")
+    }
+
+    fun clearCrashReport(context: Context) {
+        CrashGuard.clear(context)
+        _status.update { it.copy(diagnostics = null, error = null) }
+    }
+
     // --------------------------------------------------------------- toggle
 
     suspend fun setEnabled(context: Context, enabled: Boolean) {
@@ -127,9 +199,9 @@ object ProxyController {
         val trimmed = url.trim()
         if (trimmed.isEmpty()) return Result.failure(ProxyException("请先填写订阅链接"))
 
-        _status.update { it.copy(busy = true, error = null, notice = null) }
+        _status.update { it.copy(busy = true, error = null, notice = null, diagnostics = null) }
         return withContext(Dispatchers.IO) {
-            runCatching {
+            try {
                 val body = fetchSubscription(trimmed)
                 val nodes = SubscriptionParser.parse(body)
                 if (nodes.isEmpty()) {
@@ -163,9 +235,15 @@ object ProxyController {
                     startTunnel(app, nodes, selection.key)
                 }
 
-                nodes.size
-            }.onFailure { t ->
+                Result.success(nodes.size)
+            } catch (c: CancellationException) {
+                // Cancellation is not a failure; surfacing it as an error is what confused the
+                // user with "the coroutine scope left the composition".
+                _status.update { it.copy(busy = false) }
+                throw c
+            } catch (t: Throwable) {
                 _status.update { it.copy(busy = false, error = friendly(t)) }
+                Result.failure(t)
             }
         }
     }
@@ -189,6 +267,7 @@ object ProxyController {
         }
 
         _status.update { it.copy(busy = true, error = null) }
+        CrashGuard.trace("tunnel: starting ${node.type} ${node.server}:${node.port}")
 
         withContext(Dispatchers.IO) {
             try {
@@ -203,6 +282,10 @@ object ProxyController {
                         error = null,
                     )
                 }
+                CrashGuard.trace("tunnel: up on 127.0.0.1:$port")
+            } catch (c: CancellationException) {
+                _status.update { it.copy(busy = false) }
+                throw c
             } catch (t: Throwable) {
                 val message = friendly(t)
                 ProxyRuntime.lastError = message
@@ -218,6 +301,7 @@ object ProxyController {
                         error = message,
                     )
                 }
+                CrashGuard.trace("tunnel: failed $message")
             }
         }
     }

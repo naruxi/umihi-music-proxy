@@ -6,6 +6,7 @@ import io.nekohasekai.libbox.ConnectionOwner;
 import io.nekohasekai.libbox.InterfaceUpdateListener;
 import io.nekohasekai.libbox.LocalDNSTransport;
 import io.nekohasekai.libbox.NeighborUpdateListener;
+import io.nekohasekai.libbox.NetworkInterface;
 import io.nekohasekai.libbox.NetworkInterfaceIterator;
 import io.nekohasekai.libbox.Notification;
 import io.nekohasekai.libbox.PlatformInterface;
@@ -20,19 +21,21 @@ import io.nekohasekai.libbox.WIFIState;
  *
  * Umihi never creates a TUN device — it only needs a loopback mixed inbound that its own
  * HTTP client and media player dial. Everything VPN-shaped (openTun, interface monitoring,
- * neighbors, Tailscale, SSH) therefore stays inert. Returning null here is safe because
- * sing-box only queries those callbacks when a TUN inbound or auto-detect interface is
- * configured, neither of which this config uses.
+ * neighbors, Tailscale, SSH) therefore stays inert.
  *
  * Written in Java rather than Kotlin on purpose: gomobile's generated interfaces carry no
  * useful nullability annotations, and Kotlin's stricter override rules fight with the
  * deliberate nulls.
+ *
+ * Every callback that the core could plausibly reach during a plain proxy session is traced,
+ * because a crash inside Go gives us no stack trace of its own — the last traced callback is
+ * what identifies the culprit.
  */
 public class ProxyPlatformInterface implements PlatformInterface {
 
     @Override
     public void autoDetectInterfaceControl(int fd) {
-        // no TUN, nothing to protect
+        CrashGuard.INSTANCE.trace("cb:autoDetectInterfaceControl");
     }
 
     @Override
@@ -45,11 +48,12 @@ public class ProxyPlatformInterface implements PlatformInterface {
 
     @Override
     public void clearDNSCache() {
-        // Resolver is created per service instance, nothing cached globally.
+        CrashGuard.INSTANCE.trace("cb:clearDNSCache");
     }
 
     @Override
     public void closeDefaultInterfaceMonitor(InterfaceUpdateListener listener) {
+        CrashGuard.INSTANCE.trace("cb:closeDefaultInterfaceMonitor");
     }
 
     @Override
@@ -64,12 +68,29 @@ public class ProxyPlatformInterface implements PlatformInterface {
     @Override
     public ConnectionOwner findConnectionOwner(int ipProtocol, String sourceAddress, int sourcePort,
                                               String destinationAddress, int destinationPort) {
+        // Only queried for process/package routing rules, which this config never declares.
         return null;
     }
 
+    /**
+     * Note: returning null here used to kill the process. gomobile proxies the return value
+     * straight into a Go interface, and a nil there is dereferenced without a check — an
+     * empty iterator keeps the core happy while meaning "no interfaces to report".
+     */
     @Override
     public NetworkInterfaceIterator getInterfaces() {
-        return null;
+        CrashGuard.INSTANCE.trace("cb:getInterfaces");
+        return new NetworkInterfaceIterator() {
+            @Override
+            public boolean hasNext() {
+                return false;
+            }
+
+            @Override
+            public NetworkInterface next() {
+                return null;
+            }
+        };
     }
 
     @Override
@@ -101,6 +122,7 @@ public class ProxyPlatformInterface implements PlatformInterface {
 
     @Override
     public int openTun(TunOptions options) {
+        CrashGuard.INSTANCE.trace("cb:openTun (unexpected)");
         return -1;
     }
 
@@ -116,6 +138,7 @@ public class ProxyPlatformInterface implements PlatformInterface {
 
     @Override
     public void registerMyInterface(String name) {
+        CrashGuard.INSTANCE.trace("cb:registerMyInterface " + name);
     }
 
     @Override
@@ -124,6 +147,7 @@ public class ProxyPlatformInterface implements PlatformInterface {
 
     @Override
     public void startDefaultInterfaceMonitor(InterfaceUpdateListener listener) {
+        CrashGuard.INSTANCE.trace("cb:startDefaultInterfaceMonitor");
     }
 
     @Override
