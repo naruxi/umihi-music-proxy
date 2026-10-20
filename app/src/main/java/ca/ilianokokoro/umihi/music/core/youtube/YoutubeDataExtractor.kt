@@ -1302,18 +1302,16 @@ object YoutubeDataExtractor {
                     val message = ex.message ?: ex::class.simpleName.orEmpty()
                     printe("[${clientName}] $message")
 
-                    // "Sign in to confirm you're not a bot" is a coin flip, not a verdict.
-                    // Measured on a flagged exit: roughly one in four anonymous player calls
-                    // is rejected, and the response hands back a visitor id that is itself
-                    // not trusted, so a retry carrying it fails the same way. The old loop
-                    // only retried when the id *changed*, which it does not on these
-                    // rejections, so it gave up after two attempts and dropped into the
-                    // NewPipe fallback — which the same exit rejects as well, surfacing as a
-                    // "source error" seconds later. Dropping the id makes the next response
-                    // mint a fresh one, which is what actually clears the check; anything
-                    // else is a real answer about this video and is not worth repeating.
+                    // "Sign in to confirm you're not a bot" is a coin flip, not a verdict:
+                    // measured on a flagged exit, 7 of 20 anonymous player calls were
+                    // rejected and the rest went through, with the same visitor id and the
+                    // same video. The old loop only retried while the response had replaced
+                    // the visitor id, and these rejections echo it back unchanged, so it
+                    // stopped after two attempts and fell into the NewPipe fallback — which
+                    // that exit rejects too, showing up as a "source error" seconds later.
+                    // Retrying with the visitor id the response just handed back is enough;
+                    // clearing it would make every retry visitor-less and fail every time.
                     if (!isBotCheck(message)) break
-                    visitorData = null
                 }
             }
         }
