@@ -1232,7 +1232,7 @@ object YoutubeDataExtractor {
 
     private suspend fun getSongUrlFromYoutube(
         song: Song,
-        retries: Int = Constants.YoutubeApi.RETRY_COUNT
+        retries: Int = Constants.YoutubeApi.NEWPIPE_TRIES
     ): String {
         var lastError: Throwable? = null
 
@@ -1281,21 +1281,17 @@ object YoutubeDataExtractor {
             return extractStreamFromRawResponse(response)
         }
 
-        val softCap = Constants.YoutubeApi.SOFT_TRIES_PER_CLIENT
-        val hardCap = Constants.YoutubeApi.HARD_TRIES_PER_CLIENT
-
         var totalRequests = 0
 
         for (client in Constants.YoutubeApi.Client.FALLBACK_ORDER) {
             val clientName = client.getClientName()
-            var hardTries = 0
-            var softTries = 0
+            var tries = 0
 
-            while (hardTries < hardCap && softTries < softCap) {
-                val previousVisitorData = visitorData
-
+            while (tries < Constants.YoutubeApi.PLAYER_TRIES_PER_CLIENT) {
+                tries++
                 totalRequests++
-                val errorMessage = try {
+
+                try {
                     val stream = executeRequest(client)
                     printd(
                         "[$clientName] Resolved stream in $totalRequests total request(s)"
@@ -1303,28 +1299,32 @@ object YoutubeDataExtractor {
                     return@withContext stream
 
                 } catch (ex: Exception) {
-                    ex.message
+                    val message = ex.message ?: ex::class.simpleName.orEmpty()
+                    printe("[${clientName}] $message")
+
+                    // "Sign in to confirm you're not a bot" is a coin flip, not a verdict.
+                    // Measured on a flagged exit: roughly one in four anonymous player calls
+                    // is rejected, and the response hands back a visitor id that is itself
+                    // not trusted, so a retry carrying it fails the same way. The old loop
+                    // only retried when the id *changed*, which it does not on these
+                    // rejections, so it gave up after two attempts and dropped into the
+                    // NewPipe fallback — which the same exit rejects as well, surfacing as a
+                    // "source error" seconds later. Dropping the id makes the next response
+                    // mint a fresh one, which is what actually clears the check; anything
+                    // else is a real answer about this video and is not worth repeating.
+                    if (!isBotCheck(message)) break
+                    visitorData = null
                 }
-
-                val visitorDataUpdated = previousVisitorData != visitorData
-                hardTries++
-
-                if (visitorDataUpdated) {
-                    printd(
-                        "[$clientName] Updating visitor data"
-                    )
-                    continue
-                }
-
-                softTries++
-
-                printe(
-                    "[${clientName}] $errorMessage"
-                )
             }
         }
 
         null
+    }
+
+    /** True when the player endpoint refused anonymous access rather than the video. */
+    private fun isBotCheck(message: String): Boolean {
+        val lower = message.lowercase()
+        return lower.contains("not a bot") || lower.contains("sign in to confirm")
     }
 
     private fun resolveNewPipeStreamUrl(song: Song): String {

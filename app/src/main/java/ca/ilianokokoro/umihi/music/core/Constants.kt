@@ -270,8 +270,34 @@ object Constants {
             """https?://(www\.)?(youtube\.com|youtu\.be|music\.youtube\.com)/\S+"""
         const val RETRY_COUNT = 3
         const val RETRY_DELAY = 1000
+
+        /**
+         * Player calls to spend on one client before moving on.
+         *
+         * The anonymous player endpoint rejects about one call in four with "sign in to
+         * confirm you're not a bot" on an exit YouTube does not trust, and each rejection
+         * costs a fraction of a second, so a generous budget is cheap. A track that is
+         * genuinely unplayable stops after the first answer instead — only the bot check
+         * is worth repeating.
+         */
+        const val PLAYER_TRIES_PER_CLIENT = 8
+
+        /**
+         * Attempts for the NewPipe fallback.
+         *
+         * NewPipe speaks to YouTube through its own Android client, so an exit that answers
+         * the player endpoint with a bot check answers NewPipe the same way. Repeating it
+         * only delays the error by seconds; one attempt is enough to confirm the exit is
+         * unusable and lets the player fail fast instead of hanging on a black screen.
+         */
+        const val NEWPIPE_TRIES = 1
+
+        @Deprecated("Replaced by PLAYER_TRIES_PER_CLIENT, which retries on the bot check.")
         const val SOFT_TRIES_PER_CLIENT = 2
+
+        @Deprecated("Replaced by PLAYER_TRIES_PER_CLIENT, which retries on the bot check.")
         const val HARD_TRIES_PER_CLIENT = 5
+
         const val YOUTUBE_URL_PREFIX = "https://www.youtube.com/watch?v="
         const val ORIGIN = "https://music.youtube.com"
         const val API_KEY = "AIzaSyC9XL3ZjWddXya6X74dJoCTL-WEYFDNX30"
