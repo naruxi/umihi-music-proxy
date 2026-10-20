@@ -178,6 +178,22 @@ object SingBoxConfig {
     }
 
     private fun kotlinx.serialization.json.JsonObjectBuilder.putSocks(node: ProxyNode) {
+        // sing-box's socks outbound has no TLS field, yet plenty of Clash subscriptions ship
+        // "socks5 over TLS" nodes — usually CDN-fronted relays whose server name is disguised
+        // as a Huawei / Xiaohongshu / iQIYI hostname. Dropping the flag makes the core send a
+        // cleartext SOCKS5 greeting to a port that only speaks TLS; the server answers with a
+        // TLS alert (the bytes `15 03 03`, i.e. an alert record) and every request fails while
+        // the same node works fine in Clash, which honours `tls: true`.
+        //
+        // Those relays answer HTTP CONNECT over the very same TLS port, so an http outbound is
+        // an equivalent way to express them. Verified end to end against a live node: TLS to
+        // the relay, CONNECT with Basic auth, then a 200 with a real response body from the
+        // YouTube Music API.
+        if (node.tls) {
+            putHttp(node)
+            return
+        }
+
         put("type", "socks")
         putCommon(node)
         put("version", "5")
