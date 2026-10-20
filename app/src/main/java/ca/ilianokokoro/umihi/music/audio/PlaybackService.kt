@@ -24,6 +24,7 @@ import androidx.media3.datasource.DefaultDataSource
 import androidx.media3.datasource.cache.CacheDataSource
 import androidx.media3.datasource.okhttp.OkHttpDataSource
 import androidx.media3.exoplayer.DecoderReuseEvaluation
+import androidx.media3.exoplayer.DefaultLoadControl
 import androidx.media3.exoplayer.ExoPlayer
 import androidx.media3.exoplayer.analytics.AnalyticsListener
 import androidx.media3.exoplayer.source.DefaultMediaSourceFactory
@@ -98,11 +99,25 @@ class PlaybackService : MediaLibraryService() {
             .setContentType(C.AUDIO_CONTENT_TYPE_MUSIC)
             .build()
 
+        // Wide, time-based cushion: audio is a couple of megabytes even at the ceiling, and the
+        // proxied link can stall for seconds without an audible gap as long as the loader has
+        // pre-fetched far enough ahead.
+        val loadControl = DefaultLoadControl.Builder()
+            .setBufferDurationsMs(
+                Constants.Player.Buffer.MIN_MS,
+                Constants.Player.Buffer.MAX_MS,
+                Constants.Player.Buffer.FOR_PLAYBACK_MS,
+                Constants.Player.Buffer.AFTER_REBUFFER_MS,
+            )
+            .setPrioritizeTimeOverSizeThresholds(true)
+            .build()
+
         player = ExoPlayer.Builder(this)
             .setAudioAttributes(audioAttributes, true)
             .setWakeMode(C.WAKE_MODE_NETWORK)
             .setHandleAudioBecomingNoisy(true)
             .setDeviceVolumeControlEnabled(true)
+            .setLoadControl(loadControl)
             .setMediaSourceFactory(DefaultMediaSourceFactory(resolvingFactory))
             .build()
 

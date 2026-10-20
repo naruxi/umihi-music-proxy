@@ -222,6 +222,34 @@ object Constants {
         const val PRELOAD_DURATION = 5_000_000L
         val SPEEDS = listOf(0.25f, 0.5f, 0.75f, 1f, 2f, 3f, 5f)
 
+        /**
+         * Streaming buffer window for [ca.ilianokokoro.umihi.music.audio.PlaybackService].
+         *
+         * media3 defaults to a 50s/50s window and, worse, only 5s after a rebuffer. Over a
+         * relayed proxy link that stalls for a few seconds at a time, that 5s threshold is
+         * what turns one hiccup into the "plays two seconds, stalls, plays again" cycle:
+         * playback resumes the moment the buffer barely clears the minimum, so it immediately
+         * drains again.
+         *
+         * Audio is small enough that a much wider cushion costs almost nothing — 150s at
+         * 256kbps is under 5MB — and it also covers the case where the relay drops the idle
+         * socket while the buffer is full (the refill happens in the background instead of
+         * being audible).
+         */
+        object Buffer {
+            /** Below this, the loader keeps filling; above it, filling continues up to [MAX_MS]. */
+            const val MIN_MS = 60_000
+
+            /** Hard ceiling for pre-fetch. */
+            const val MAX_MS = 150_000
+
+            /** Enough to start playback at all. */
+            const val FOR_PLAYBACK_MS = 2_500
+
+            /** After a stall, refill well past the bare minimum before resuming. */
+            const val AFTER_REBUFFER_MS = 15_000
+        }
+
         object Tracking {
             const val WATCHTIME_INTERVAL_MS = 15_000L
             const val WATCHTIME_ADVANCE_SEC = 20f
@@ -350,7 +378,9 @@ object Constants {
 
         object Search {
             const val URL = "https://music.youtube.com/youtubei/v1/search?prettyPrint=false"
-            const val FILTER = "EgWKAQIIAWoSEAMQBBAQEAUQFRAKEAkQERAO"
+
+            // No filter params constant here on purpose — see buildContextBody(). The previous
+            // hardcoded song filter is rejected by the current API and yields zero results.
         }
 
         object SearchAutocomplete {
