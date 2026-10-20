@@ -75,11 +75,6 @@ android {
             isDefault = true
             dimension = "version"
             buildConfigField("boolean", "UPDATER_ENABLED", "true")
-            // vivo's island capsule only renders music from apps it recognises, and it matches on
-            // package name — there is no setting that adds a third-party player to that list. So
-            // this build presents itself as Kugou, which the system already knows. Safe only
-            // because Kugou itself is not installed; with both present the second install fails.
-            applicationId = "com.kugou.android"
         }
 
         create("store") {
