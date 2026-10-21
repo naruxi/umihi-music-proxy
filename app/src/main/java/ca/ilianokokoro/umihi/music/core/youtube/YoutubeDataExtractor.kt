@@ -11,6 +11,7 @@ import ca.ilianokokoro.umihi.music.core.helpers.LogHelper.printe
 import ca.ilianokokoro.umihi.music.core.helpers.UmihiHelper.safeArray
 import ca.ilianokokoro.umihi.music.core.helpers.UmihiHelper.safeObject
 import ca.ilianokokoro.umihi.music.data.database.AppDatabase
+import ca.ilianokokoro.umihi.music.data.datasources.SongDataSource
 import ca.ilianokokoro.umihi.music.data.repositories.DatastoreRepository
 import ca.ilianokokoro.umihi.music.extensions.getClientName
 import ca.ilianokokoro.umihi.music.models.AddToPlaylistOption
@@ -18,6 +19,7 @@ import ca.ilianokokoro.umihi.music.models.PlaylistInfo
 import ca.ilianokokoro.umihi.music.models.PlaylistType
 import ca.ilianokokoro.umihi.music.models.Song
 import ca.ilianokokoro.umihi.music.models.UmihiSettings
+import ca.ilianokokoro.umihi.music.models.lyrics.HanziFold
 import ca.ilianokokoro.umihi.music.models.lyrics.TrackCredits
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
@@ -34,6 +36,7 @@ import kotlinx.serialization.json.jsonPrimitive
 import okhttp3.Request
 import org.schabi.newpipe.extractor.ServiceList
 import java.util.Locale
+import java.util.concurrent.ConcurrentHashMap
 import kotlin.time.Duration.Companion.milliseconds
 
 var visitorData: String? = null
@@ -42,6 +45,40 @@ object YoutubeDataExtractor {
     private const val AUTO_GENERATED_HEADER = "Provided to YouTube by"
     private const val CREDIT_SEPARATOR_CHAR = '·'
     private val CREDIT_SEPARATOR = Regex("""\s*·\s*""")
+
+    /**
+     * Replacement ids already found, so a track that plays often is searched once.
+     *
+     * Concurrent because the playlist worker downloads several songs at a time.
+     */
+    private val replacementIds = ConcurrentHashMap<String, String>()
+
+    /**
+     * How far a replacement's duration may drift from the original, in seconds.
+     *
+     * Re-uploads keep the full track, so a few seconds of intro or silence is the most that
+     * legitimately differs. A cover or a live cut lands well outside this and is dropped.
+     */
+    private const val REPLACEMENT_MAX_DURATION_DELTA = 15
+
+    /** Titles that name a derivative rather than the recording itself. */
+    private val REPLACEMENT_DERIVATIVE = Regex(
+        """\b(cover|karaoke|instrumental|remix|nightcore|sped\s*up|slowed|reverb|8d|parody|tribute|ai\s+cover)\b""" +
+                "|翻唱|伴奏|纯音乐|純音樂|dj版|加速版|慢速版",
+        RegexOption.IGNORE_CASE
+    )
+
+    /** `(...)`, `[...]`, `【...】` and `（...）`, which carry versions and remaster notes. */
+    private val BRACKETED_SUFFIX = Regex("""[\(\[【（][^\)\]】）]*[\)\]】）]""")
+
+    /** Everything that is not a letter or a digit. */
+    private val NON_WORD = Regex("""[^\p{L}\p{N}]""")
+
+    /** Separators the artist field uses for collaborations. */
+    private val ARTIST_SEPARATOR = Regex("""[/,&、]""")
+
+    /** ` - `, ` – `, ` — ` and ` / `, which stored titles use to append an alias. */
+    private val TITLE_SEGMENT_SEPARATOR = Regex("""\s+[-–—/]\s+""")
 
     fun extractYouTubeVideoId(url: String): String? {
         val uri = url.toUri()
@@ -1252,6 +1289,19 @@ object YoutubeDataExtractor {
             return fastUrl
         }
 
+        // The refusal above is final for this id, but not for the recording: the official
+        // upload can be pulled while re-uploads of the same track stay playable. Ask the
+        // catalogue before falling back to NewPipe, which speaks a client these exits refuse
+        // just as readily.
+        val replacementId = findReplacementVideoId(song)
+        if (replacementId != null) {
+            val replacementUrl = resolveAnonymousStreamUrl(replacementId, settings)
+            if (replacementUrl != null) {
+                printd("${song.youtubeId} : Resolved through replacement $replacementId")
+                return replacementUrl
+            }
+        }
+
         printd("${song.youtubeId} : Falling back to NewPipe")
         repeat(retries) { attempt ->
             try {
@@ -1355,6 +1405,115 @@ object YoutubeDataExtractor {
         return lower.contains("not a bot") || lower.contains("sign in to confirm")
     }
 
+    /**
+     * Last resort before reporting a track as undownloadable.
+     *
+     * A player refusal is final for the id it was asked about, but the id can die while the
+     * recording lives on: the rights holder pulls the official upload from the catalogue and
+     * leaves only community re-uploads of the same recording. Measured on one such track — the
+     * official `- Topic` id answered `UNPLAYABLE` from four clients, signed in and out, on three
+     * different exits — the first result for "<artist> <title>" played straight away.
+     *
+     * The match is deliberately strict, because getting it wrong is worse than failing:
+     * "Always On The Run" is both an Avicii track and a Lenny Kravitz one, and swapping in the
+     * wrong recording means the user silently hears a different song. So the title has to match
+     * after normalisation, the artist has to appear in the candidate's own text — search results
+     * put the *channel* name in the artist field, so the title is searched too — the duration
+     * has to be within seconds, and obvious derivatives are dropped by name.
+     */
+    private suspend fun findReplacementVideoId(song: Song): String? {
+        replacementIds[song.youtubeId]?.let { return it }
+
+        val query = listOf(song.artists, song.title)
+            .map { it.trim() }
+            .filter { it.isNotEmpty() }
+            .joinToString(" ")
+        if (query.isEmpty()) return null
+
+        val candidates = runCatching { SongDataSource().search(query) }
+            .getOrNull()
+            .orEmpty()
+            .filter { it.youtubeId != song.youtubeId }
+        if (candidates.isEmpty()) return null
+
+        // Stored titles often carry the artist or an English alias after a dash —
+        // "隨緣 - Sui Yuan", "一生何求 - Life Expectation" — while a search result only repeats
+        // one of them. Matching any segment long enough to be distinctive covers both.
+        val wantedTitles = song.title
+            .split(TITLE_SEGMENT_SEPARATOR)
+            .map { normaliseTitle(it) }
+            .filter { it.length >= 2 }
+            .ifEmpty { listOf(normaliseTitle(song.title)) }
+            .filter { it.isNotEmpty() }
+        if (wantedTitles.isEmpty()) return null
+        val wantedSeconds = parseDurationSeconds(song.duration)
+        val wantedArtist = normaliseArtist(song.artists)
+
+        val best = candidates
+            .asSequence()
+            .filter { !REPLACEMENT_DERIVATIVE.containsMatchIn(it.title) }
+            .filter { candidate ->
+                val title = normaliseTitle(candidate.title)
+                title.isNotEmpty() && wantedTitles.any { title.contains(it) }
+            }
+            .filter { candidate ->
+                wantedArtist.isEmpty() ||
+                        normaliseArtist(candidate.title).contains(wantedArtist) ||
+                        normaliseArtist(candidate.artists).contains(wantedArtist)
+            }
+            .mapNotNull { candidate ->
+                val seconds = parseDurationSeconds(candidate.duration)
+                if (wantedSeconds == null || seconds == null) return@mapNotNull null
+                val delta = kotlin.math.abs(seconds - wantedSeconds)
+                if (delta > REPLACEMENT_MAX_DURATION_DELTA) null else candidate to delta
+            }
+            .minByOrNull { it.second }
+            ?.first
+            ?.youtubeId
+            ?: return null
+
+        printd("${song.youtubeId} : Matched replacement $best for \"$query\"")
+        replacementIds[song.youtubeId] = best
+        return best
+    }
+
+    /** Letters and digits only, so punctuation and bracketed suffixes stop mattering. */
+    private fun normaliseTitle(value: String): String =
+        HanziFold.fold(value)
+            .lowercase(Locale.ROOT)
+            .replace(BRACKETED_SUFFIX, " ")
+            .replace(NON_WORD, "")
+            .trim()
+
+    /** Same, but keeps only the leading artist so "A / B" still matches "A". */
+    private fun normaliseArtist(value: String): String =
+        HanziFold.fold(value)
+            .lowercase(Locale.ROOT)
+            .split(ARTIST_SEPARATOR)
+            .firstOrNull()
+            .orEmpty()
+            .replace(NON_WORD, "")
+            .trim()
+
+    private fun parseDurationSeconds(value: String): Int? {
+        val parts = value.split(':').map { it.trim().toIntOrNull() ?: return null }
+        return when (parts.size) {
+            2 -> parts[0] * 60 + parts[1]
+            3 -> parts[0] * 3600 + parts[1] * 60 + parts[2]
+            else -> null
+        }
+    }
+
+    /** `simpleText` or the concatenated `runs` of a text node inside this object. */
+    private fun JsonObject.plainText(key: String): String? {
+        val node = this[key]?.safeObject() ?: return null
+        node["simpleText"]?.jsonPrimitive?.contentOrNull?.let { return it }
+        return node["runs"]?.safeArray()
+            ?.mapNotNull { it.safeObject()?.get("text")?.jsonPrimitive?.contentOrNull }
+            ?.joinToString("")
+            ?.takeIf { it.isNotBlank() }
+    }
+
     private fun resolveNewPipeStreamUrl(song: Song): String {
         val service = ServiceList.YouTube
         val extractor = service.getStreamExtractor(song.youtubeUrl)
@@ -1419,7 +1578,28 @@ object YoutubeDataExtractor {
             ?.contentOrNull
 
         if (directUrl == null) {
-            throw Exception("($status) $reason")
+            // `reason` on its own is ambiguous: "Video unavailable" is what a takedown, a
+            // region block and an id that no longer carries a stream all answer. The error
+            // screen holds the sub-reason YouTube would draw for the user, which is the only
+            // text that separates those cases, so it goes into the log.
+            val detail = root["playabilityStatus"]
+                ?.safeObject()
+                ?.get("errorScreen")
+                ?.safeObject()
+                ?.get("playerErrorMessageRenderer")
+                ?.safeObject()
+                ?.let { renderer ->
+                    listOfNotNull(
+                        renderer.plainText("reason"),
+                        renderer.plainText("subreason"),
+                    ).joinToString(" / ")
+                }
+                .orEmpty()
+
+            throw Exception(
+                if (detail.isBlank()) "($status) $reason"
+                else "($status) $reason — $detail"
+            )
         }
 
         // No HEAD probe here. This URL was signed by the player response we just parsed, so it
