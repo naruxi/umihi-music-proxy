@@ -9,7 +9,9 @@ import androidx.media3.datasource.cache.LeastRecentlyUsedCacheEvictor
 import androidx.media3.datasource.cache.SimpleCache
 import ca.ilianokokoro.umihi.music.core.Constants
 import ca.ilianokokoro.umihi.music.data.repositories.DatastoreRepository
+import ca.ilianokokoro.umihi.music.data.repositories.dataStore
 import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.runBlocking
 import java.io.File
 
@@ -25,8 +27,12 @@ class ExoCache private constructor(context: Context) {
     }
 
     private fun getCacheSize(): Long {
+        // Single key, read directly — see the note in CoilImageLoader. This runs when playback
+        // first builds the cache, on whatever thread starts the player.
         val sizeMB = runBlocking {
-            DatastoreRepository(appContext).settings.first().exoPlayerCacheSizeMB
+            appContext.dataStore.data
+                .map { it[DatastoreRepository.PreferenceKeys.EXOPLAYER_CACHE_SIZE] ?: Constants.Cache.Audio.DEFAULT_SIZE_MB }
+                .first()
         }
 
         return sizeMB.toLong() * 1024L * 1024L

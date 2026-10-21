@@ -4,10 +4,13 @@ import android.content.Context
 import ca.ilianokokoro.umihi.music.core.Constants
 import ca.ilianokokoro.umihi.music.core.UmihiHttpClient
 import ca.ilianokokoro.umihi.music.data.repositories.DatastoreRepository
+import ca.ilianokokoro.umihi.music.data.repositories.dataStore
 import coil3.ImageLoader
 import coil3.disk.DiskCache
 import coil3.network.okhttp.OkHttpNetworkFetcherFactory
 import coil3.request.crossfade
+import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.runBlocking
 import okio.Path.Companion.toPath
 import java.io.File
@@ -47,8 +50,14 @@ object CoilImageLoader {
     }
 
     private fun getCacheSize(context: Context): Int {
+        // Single key, read directly. Going through DatastoreRepository.settings pulls in the
+        // cookies flow and the sync-id flow as well — and that one rewrites an invalid id back
+        // to disk — all to answer one integer. This runs on the first image request, which is
+        // on the main thread.
         return runBlocking {
-            DatastoreRepository(context).getSettings().thumbnailCacheSizeMB
+            context.dataStore.data
+                .map { it[DatastoreRepository.PreferenceKeys.THUMBNAIL_CACHE_SIZE] ?: Constants.Cache.Thumbnail.DEFAULT_SIZE_MB }
+                .first()
         }
     }
 
