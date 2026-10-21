@@ -87,7 +87,12 @@ jobs:
 
       - name: Build APKs
         env:
-          build_type: ${{ inputs.build_type || 'debug' }}
+          # Debug used to be the default here, and it is a poor default for a distributed
+          # build: debug skips R8 entirely, so the APK shipped 26 dex files (~27 MB) and
+          # ran un-optimized on device. Release shrinks that to a handful of dex files and
+          # gets AOT-compiled on install. Diagnostics are unaffected — LogHelper still logs,
+          # and the `diagnostic` build type is still selectable by hand for the file log.
+          build_type: ${{ inputs.build_type || 'release' }}
         run: |
           case "$build_type" in
             debug)
@@ -116,7 +121,7 @@ jobs:
 
       - name: Collect APKs
         env:
-          build_type: ${{ inputs.build_type || 'debug' }}
+          build_type: ${{ inputs.build_type || 'release' }}
         run: |
           mkdir -p release-apks
 
