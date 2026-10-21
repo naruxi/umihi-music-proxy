@@ -105,12 +105,18 @@ object LyricsMatch {
     }
 
     private fun tokens(value: String): Set<String> =
-        NON_WORD.replace(value.lowercase(), " ")
+        NON_WORD.replace(HanziFold.fold(value).lowercase(), " ")
             .replace(WHITESPACE, " ")
             .trim()
             .split(' ')
             .filter { it.length > 1 }
             .toSet()
 
-    private fun tightKey(value: String): String = NON_WORD.replace(value.lowercase(), "")
+    /**
+     * Both sides are folded: a song title arrives from YouTube Music in whichever spelling the
+     * uploader used, while the domestic catalogues answer in Simplified, so `煙花易冷` and
+     * `烟花易冷` have to compare equal or every Traditional title scores zero.
+     */
+    private fun tightKey(value: String): String =
+        NON_WORD.replace(HanziFold.fold(value).lowercase(), "")
 }

@@ -37,11 +37,15 @@ data class LyricsQuery(
      */
     val keyword: String
         get() {
-            val trimmed = artist.trim()
+            // Traditional spellings are folded here as well as in the scorer: the domestic
+            // endpoints are keyed on Simplified, and a `煙花易冷` query answers with an empty
+            // page even though the song sits right there under `烟花易冷`.
+            val foldedTitle = HanziFold.fold(title.trim())
+            val trimmed = HanziFold.fold(artist.trim())
             val usable = trimmed.isNotEmpty() &&
                 trimmed.length <= MAX_ARTIST_IN_KEYWORD &&
                 !SUSPECT_ARTIST.containsMatchIn(trimmed)
-            return if (usable) "$title $trimmed" else title.trim()
+            return if (usable) "$foldedTitle $trimmed" else foldedTitle
         }
 
     companion object {
