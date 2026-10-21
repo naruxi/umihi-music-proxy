@@ -1512,10 +1512,13 @@ object YoutubeDataExtractor {
                 val delta = kotlin.math.abs(seconds - wantedSeconds)
                 if (delta > REPLACEMENT_MAX_DURATION_DELTA) return@mapNotNull null
 
-                // Within a few seconds of the original, a fan re-upload and the rights
-                // holder's own video are both "the same track", and the official one is the
-                // better pick — the fan copy is often a lyric video built from a lossy rip.
-                // Outside that window the closer length is the only signal worth having.
+                // Ownership first, closeness last. A rights holder's own upload routinely runs a
+                // few seconds shorter than the library's timing — `一樣的月光` is 4:01 in the
+                // catalog and 3:55 on 亞神音樂娛樂's official video — so ranking on the closest
+                // length first hands the slot to whichever re-upload copied the catalog timing
+                // exactly, which is how a lyric channel's live rip beat the official video. Both
+                // are "the same track" as long as the length is inside the window above, so the
+                // one whose provenance is known wins.
                 //
                 // Ownership is read two ways. "Official" in the title is the weak one: the
                 // upload ranked first is usually titled plainly "Artist - Title". What the
@@ -1524,21 +1527,21 @@ object YoutubeDataExtractor {
                 // *contains* the artist outranks one that merely shares a word with the title.
                 Replacement(
                     song = candidate,
-                    closeEnough = if (delta <= REPLACEMENT_OFFICIAL_WINDOW) 0 else 1,
                     artistChannel = if (wantedArtist.isNotEmpty() &&
                         normaliseArtist(candidate.artists).contains(wantedArtist)
                     ) 0 else 1,
                     official = if (OFFICIAL_MARK.containsMatchIn(candidate.title) ||
                         OFFICIAL_MARK.containsMatchIn(candidate.artists)
                     ) 0 else 1,
+                    closeEnough = if (delta <= REPLACEMENT_OFFICIAL_WINDOW) 0 else 1,
                     delta = delta,
                 )
             }
             .sortedWith(
                 compareBy(
-                    { it.closeEnough },
                     { it.artistChannel },
                     { it.official },
+                    { it.closeEnough },
                     { it.delta },
                 )
             )
