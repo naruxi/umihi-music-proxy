@@ -362,10 +362,28 @@ object Constants {
         object Client {
             val WEB_REMIX = buildJsonObject {
                 put("clientName", JsonPrimitive("WEB_REMIX"))
-                put("clientVersion", JsonPrimitive("1.20260707.12.00"))
+                put("clientVersion", JsonPrimitive("1.20261018.16.00"))
                 put("xClientName", JsonPrimitive("67"))
                 put("userAgent", JsonPrimitive(USER_AGENT))
                 put("platform", JsonPrimitive("DESKTOP"))
+            }
+
+            /**
+             * The Android YouTube Music client.
+             *
+             * Only used for playback tracking: the web client answers the player call without
+             * the `playbackTracking` block on some videos, and the Android client still fills it
+             * in, so it is the second stop in [TRACKING_FALLBACK_ORDER].
+             */
+            val ANDROID = buildJsonObject {
+                put("clientName", JsonPrimitive("ANDROID"))
+                put("clientVersion", JsonPrimitive("20.10.38"))
+                put("androidSdkVersion", JsonPrimitive(34))
+                put("xClientName", JsonPrimitive("3"))
+                put(
+                    "userAgent",
+                    JsonPrimitive("com.google.android.youtube/20.10.38 (Linux; U; Android 14) gzip")
+                )
             }
 
             /**
@@ -399,6 +417,11 @@ object Constants {
 
             val FALLBACK_ORDER = listOf(
                 VISION_OS
+            )
+
+            val TRACKING_FALLBACK_ORDER = listOf(
+                WEB_REMIX,
+                ANDROID,
             )
         }
 
