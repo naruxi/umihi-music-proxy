@@ -415,8 +415,32 @@ object Constants {
                 put("platform", JsonPrimitive("DESKTOP"))
             }
 
+            /**
+             * The iOS YouTube client, used as the second anonymous stop.
+             *
+             * Measured against the same exit that answered `VISIONOS` with "sign in to confirm
+             * you're not a bot", this client handed back five audio formats for the very same
+             * video. It does not share the web client's bot wall, so it is worth one request
+             * before falling through to NewPipe, which speaks yet another client and gets
+             * refused just as often.
+             */
+            val IOS = buildJsonObject {
+                put("clientName", JsonPrimitive("IOS"))
+                put("clientVersion", JsonPrimitive("20.10.4"))
+                put("xClientName", JsonPrimitive("5"))
+                put(
+                    "userAgent",
+                    JsonPrimitive("com.google.ios.youtube/20.10.4 (iPhone16,2; U; CPU iOS 18_3_2 like Mac OS X;)")
+                )
+                put("deviceMake", JsonPrimitive("Apple"))
+                put("deviceModel", JsonPrimitive("iPhone16,2"))
+                put("osName", JsonPrimitive("iPhone"))
+                put("osVersion", JsonPrimitive("18.3.2.22D82"))
+            }
+
             val FALLBACK_ORDER = listOf(
-                VISION_OS
+                VISION_OS,
+                IOS,
             )
 
             /**
@@ -428,13 +452,13 @@ object Constants {
              * on an exit YouTube decides to distrust. Both rejections look identical without
              * a cookie, so the only way to tell them apart is to ask again with one.
              *
-             * `WEB_REMIX` leads because it is the client that the SAPISIDHASH scheme in
-             * [YoutubeAuthHelper] was designed around; `VISION_OS` follows for the tracks the
-             * web client refuses without a PO token.
+             * `WEB_REMIX` is the only entry because it is the client the SAPISIDHASH scheme in
+             * [YoutubeAuthHelper] was built around. `VISIONOS` was measured here too and
+             * answers `HTTP 400 INVALID_ARGUMENT` to every signed request, so it is not worth
+             * the round trip.
              */
             val AUTH_FALLBACK_ORDER = listOf(
                 WEB_REMIX,
-                VISION_OS,
             )
 
             val TRACKING_FALLBACK_ORDER = listOf(
