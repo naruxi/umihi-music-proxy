@@ -28,7 +28,9 @@ import ca.ilianokokoro.umihi.music.core.managers.VersionManager
 import ca.ilianokokoro.umihi.music.core.youtube.YoutubeDataExtractor
 import ca.ilianokokoro.umihi.music.core.youtube.YoutubeExtractor
 import ca.ilianokokoro.umihi.music.data.repositories.DatastoreRepository
+import ca.ilianokokoro.umihi.music.data.repositories.DatastoreRepository.PreferenceKeys
 import ca.ilianokokoro.umihi.music.data.repositories.SongRepository
+import ca.ilianokokoro.umihi.music.data.repositories.dataStore
 import ca.ilianokokoro.umihi.music.models.enums.ThemeMode
 import ca.ilianokokoro.umihi.music.ui.components.dialog.DatabaseDestructionDialog
 import ca.ilianokokoro.umihi.music.ui.components.dialog.UpdateDialog
@@ -36,6 +38,7 @@ import ca.ilianokokoro.umihi.music.ui.navigation.NavigationRoot
 import ca.ilianokokoro.umihi.music.ui.theme.UmihiMusicTheme
 import cat.ereza.customactivityoncrash.config.CaocConfig
 import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.runBlocking
 import org.schabi.newpipe.extractor.NewPipe
@@ -116,8 +119,16 @@ class MainActivity : ComponentActivity() {
     }
 
     override fun attachBaseContext(newBase: Context) {
+        // Only this one flag is needed here, and it is needed synchronously: the locale has to
+        // be set on the base context before anything inflates. Reading it through
+        // DatastoreRepository.settings built a whole UmihiSettings first — which also collects
+        // the cookies flow and the sync-id flow, and that second one writes the invalid id back
+        // to disk. All of it blocked the main thread while the activity was still being
+        // constructed, on every cold start. One key, one read, no write.
         val useSpecialLanguage = runBlocking {
-            DatastoreRepository(newBase).settings.first().useSpecialLanguage
+            newBase.dataStore.data
+                .map { it[PreferenceKeys.USE_SPECIAL_LANGUAGE] ?: false }
+                .first()
         }
 
         val context = if (useSpecialLanguage) {
