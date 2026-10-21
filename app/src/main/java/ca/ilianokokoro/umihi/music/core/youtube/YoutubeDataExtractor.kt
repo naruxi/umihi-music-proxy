@@ -68,8 +68,16 @@ object YoutubeDataExtractor {
         RegexOption.IGNORE_CASE
     )
 
-    /** `(...)`, `[...]`, `【...】` and `（...）`, which carry versions and remaster notes. */
-    private val BRACKETED_SUFFIX = Regex("""[\(\[【（][^\)\]】）]*[\)\]】）]""")
+    /**
+     * The bracket characters themselves, not their contents.
+     *
+     * Stripping a bracketed group whole looks tidier — it removes "(Official Music Video)" —
+     * but it also removes the *title* whenever the title is what the brackets carry, which is
+     * the usual layout for Chinese releases: "徐佳瑩 LaLa【一樣的月光】Official Music Video".
+     * Keying on the brackets alone keeps "一样的月光" in the haystack and still lets the
+     * punctuation regex below flatten the noise around it.
+     */
+    private val BRACKET_CHARS = Regex("""[\(\)\[\]【】［］（）]""")
 
     /** Everything that is not a letter or a digit. */
     private val NON_WORD = Regex("""[^\p{L}\p{N}]""")
@@ -1481,7 +1489,7 @@ object YoutubeDataExtractor {
     private fun normaliseTitle(value: String): String =
         HanziFold.fold(value)
             .lowercase(Locale.ROOT)
-            .replace(BRACKETED_SUFFIX, " ")
+            .replace(BRACKET_CHARS, " ")
             .replace(NON_WORD, "")
             .trim()
 
