@@ -36,6 +36,10 @@ class LyricsRepository {
     suspend fun getLyrics(song: Song): Lyrics? {
         val candidates = LyricsQuery.candidatesFrom(song).ifEmpty { return null }
 
+        // Five sources share one hard deadline, so a single slow handshake on a mobile
+        // connection makes the whole round come back empty even though the lyrics exist.
+        // Measured on device: the same track misses on the first pass and lands on the second.
+        lookup(candidates)?.let { return it }
         lookup(candidates)?.let { return it }
 
         val credits = creditsFor(song) ?: return null
