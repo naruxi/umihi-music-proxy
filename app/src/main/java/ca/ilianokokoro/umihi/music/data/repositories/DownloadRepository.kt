@@ -110,14 +110,26 @@ class DownloadRepository(appContext: Context) {
             return
         }
 
-        if (existingSong == null) {
-            localSongRepository.create(song)
-        }
+        // The row may already exist as a leftover playback cache with no metadata in it, or as
+        // a library entry the playlist sync already titled properly. `create` upserts the whole
+        // row, so writing [song] unconditionally would overwrite playlist metadata with the
+        // search result's channel name. Fill only what is blank: a download started from search
+        // then keeps the upload's own title and channel, which is what the user picked, while a
+        // track that already has a name keeps it.
+        val storedSong = existingSong?.copy(
+            title = existingSong.title.ifBlank { song.title },
+            artists = existingSong.artists.ifBlank { song.artists },
+            duration = existingSong.duration.ifBlank { song.duration },
+            thumbnailHref = existingSong.thumbnailHref.ifBlank { song.thumbnailHref },
+        ) ?: song
+
+        localSongRepository.create(storedSong)
+
         // Started from a search result: the id on screen is the one the user chose, so a dead
         // upload fails instead of being replaced by a re-upload of the same song.
         enqueueSongDownload(
-            song = song,
-            uniqueWorkId = song.youtubeId,
+            song = storedSong,
+            uniqueWorkId = storedSong.youtubeId,
             playlistId = null,
             useMetered = useMetered,
             allowReplacement = false

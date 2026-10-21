@@ -70,15 +70,19 @@ interface LocalSongDataSource {
     @Query("DELETE FROM songs")
     suspend fun deleteAll()
 
-    suspend fun setStreamUrl(songId: String, streamUrl: String) {
-        val existing = getSong(songId) ?: Song(
-            youtubeId = songId,
-            streamUrl = streamUrl
-        )
-
-        val updated = existing.copy(streamUrl = streamUrl)
-        create(updated)
-    }
+    /**
+     * Caches the resolved stream url, but only against a row that already exists.
+     *
+     * This used to insert a placeholder keyed on the id alone whenever the track was not in the
+     * library — which is every track played straight out of search results. The placeholder
+     * carried an empty title, artist, duration and thumbnail, and `create` upserts the whole
+     * row, so downloading that same track afterwards reused the placeholder: the file landed as
+     * `-  [id].webm` and the downloaded list showed a blank name. Playback does not need the
+     * library row to remember a url — `YoutubeDataSourceFactory` already keeps one in memory for
+     * the life of the process.
+     */
+    @Query("UPDATE songs SET streamUrl = :streamUrl WHERE youtubeId = :songId")
+    suspend fun setStreamUrl(songId: String, streamUrl: String)
 
     @Query("DELETE FROM songs WHERE youtubeId IN (:songIds)")
     suspend fun deleteByIds(songIds: List<String>)
