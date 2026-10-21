@@ -301,6 +301,11 @@ fun PlaylistScreen(
                                                     download = {
                                                         playlistViewModel.downloadSong(song)
                                                     },
+                                                    deleteDownload = if (song.downloaded) {
+                                                        { playlistViewModel.deleteDownload(song) }
+                                                    } else {
+                                                        null
+                                                    },
                                                     addToPlaylist = if (isLoggedIn) {
                                                         { addToPlaylistSong = song }
                                                     } else {

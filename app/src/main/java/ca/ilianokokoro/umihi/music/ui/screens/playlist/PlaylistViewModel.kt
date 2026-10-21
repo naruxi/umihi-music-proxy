@@ -11,6 +11,7 @@ import androidx.lifecycle.viewmodel.viewModelFactory
 import androidx.work.WorkInfo
 import ca.ilianokokoro.umihi.music.R
 import ca.ilianokokoro.umihi.music.core.ApiResult
+import ca.ilianokokoro.umihi.music.core.helpers.DownloadHelper
 import ca.ilianokokoro.umihi.music.core.helpers.LogHelper.printd
 import ca.ilianokokoro.umihi.music.core.helpers.LogHelper.printe
 import ca.ilianokokoro.umihi.music.core.managers.PlayerManager
@@ -340,6 +341,23 @@ class PlaylistViewModel(
         viewModelScope.launch {
             val settings = datastoreRepository.getSettings()
             downloadRepository.downloadSong(playlist, song, settings.downloadOnMetered)
+        }
+    }
+
+    /**
+     * Removes a downloaded file so the track can be fetched again.
+     *
+     * A download can turn out to be the wrong recording: the id a song row carries can outlive
+     * the upload it pointed at, and the replacement the search recovers may be a live take or a
+     * lossy re-upload. Without this, the file would stay forever — [downloadSong] returns early
+     * as soon as a song counts as downloaded.
+     */
+    fun deleteDownload(song: Song) {
+        val path = song.audioFilePath ?: return
+        viewModelScope.launch {
+            DownloadHelper.deleteAudio(application, path)
+            AppDatabase.getInstance(application).songRepository()
+                .updateAudioPath(song.youtubeId, null)
         }
     }
 

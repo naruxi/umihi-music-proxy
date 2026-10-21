@@ -25,6 +25,7 @@
     <string name="error_log">Error Log</string>
     <string name="login_success">Login success</string>
     <string name="download">Download</string>
+    <string name="delete_download">Delete download</string>
     <string name="dot" translatable="false">•</string>
     <string name="more">more</string>
     <string name="join_discord_server">Join the Discord server</string>

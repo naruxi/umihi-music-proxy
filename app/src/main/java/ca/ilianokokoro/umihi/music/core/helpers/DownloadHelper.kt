@@ -2,6 +2,7 @@ package ca.ilianokokoro.umihi.music.core.helpers
 
 import android.content.Context
 import android.net.Uri
+import android.provider.DocumentsContract
 import androidx.documentfile.provider.DocumentFile
 import ca.ilianokokoro.umihi.music.core.Constants
 import ca.ilianokokoro.umihi.music.core.UmihiHttpClient
@@ -20,6 +21,32 @@ import java.io.FileOutputStream
 import java.io.IOException
 
 object DownloadHelper {
+
+    /**
+     * Removes a downloaded file so the track can be fetched again.
+     *
+     * Needed because a download can turn out to be the wrong recording — the id in the library
+     * can point at a dead upload whose replacement is a live take or a lossy re-upload — and
+     * nothing else in the app would ever overwrite the file, since [downloadAudio] returns
+     * early whenever it already exists.
+     *
+     * The caller clears `audioFilePath` afterwards either way: a file that cannot be removed
+     * is better reported as not downloaded than kept as a trap that never re-downloads.
+     */
+    suspend fun deleteAudio(context: Context, path: String): Boolean = withContext(Dispatchers.IO) {
+        if (path.isBlank()) return@withContext false
+
+        runCatching {
+            if (path.startsWith("content://")) {
+                DocumentsContract.deleteDocument(
+                    context.contentResolver,
+                    Uri.parse(path)
+                )
+            } else {
+                File(path).delete()
+            }
+        }.getOrDefault(false)
+    }
 
     suspend fun downloadImage(context: Context, imageUrl: String, id: String): File? {
         return withContext(Dispatchers.IO) {
