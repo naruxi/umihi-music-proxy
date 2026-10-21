@@ -8,6 +8,7 @@ import ca.ilianokokoro.umihi.music.core.Constants
 import ca.ilianokokoro.umihi.music.core.UmihiHttpClient
 import ca.ilianokokoro.umihi.music.core.helpers.LogHelper.printd
 import ca.ilianokokoro.umihi.music.core.helpers.LogHelper.printe
+import ca.ilianokokoro.umihi.music.core.helpers.LogHelper.printw
 import ca.ilianokokoro.umihi.music.core.helpers.UmihiHelper.safeArray
 import ca.ilianokokoro.umihi.music.core.helpers.UmihiHelper.safeObject
 import ca.ilianokokoro.umihi.music.data.database.AppDatabase
@@ -61,12 +62,35 @@ object YoutubeDataExtractor {
      */
     private const val REPLACEMENT_MAX_DURATION_DELTA = 15
 
-    /** Titles that name a derivative rather than the recording itself. */
+    /**
+     * Within this many seconds, two uploads count as the same recording.
+     *
+     * Re-uploads trim or pad the intro, so a few seconds apart says nothing about which one is
+     * the real track — that decision moves to whether the upload is the rights holder's own.
+     */
+    private const val REPLACEMENT_OFFICIAL_WINDOW = 5
+
+    /**
+     * Titles that name a derivative rather than the recording itself.
+     *
+     * "live" is deliberately absent: it is a legitimate word in plenty of song titles, so the
+     * check for it compares the candidate against the track being replaced instead — see
+     * [isLiveTake].
+     */
     private val REPLACEMENT_DERIVATIVE = Regex(
         """\b(cover|karaoke|instrumental|remix|nightcore|sped\s*up|slowed|reverb|8d|parody|tribute|ai\s+cover)\b""" +
                 "|翻唱|伴奏|纯音乐|純音樂|dj版|加速版|慢速版",
         RegexOption.IGNORE_CASE
     )
+
+    /** The word "live", as a word. */
+    private val LIVE_WORD = Regex("""\blive\b""", RegexOption.IGNORE_CASE)
+
+    /** Chinese for a concert recording. */
+    private val LIVE_CJK = Regex("""现场|現場|演唱會|演唱会""")
+
+    /** Marks the rights holder's own upload rather than a fan re-upload. */
+    private val OFFICIAL_MARK = Regex("""official|- topic""", RegexOption.IGNORE_CASE)
 
     /**
      * The bracket characters themselves, not their contents.
@@ -74,10 +98,12 @@ object YoutubeDataExtractor {
      * Stripping a bracketed group whole looks tidier — it removes "(Official Music Video)" —
      * but it also removes the *title* whenever the title is what the brackets carry, which is
      * the usual layout for Chinese releases: "徐佳瑩 LaLa【一樣的月光】Official Music Video".
-     * Keying on the brackets alone keeps "一样的月光" in the haystack and still lets the
-     * punctuation regex below flatten the noise around it.
+     * So both forms are produced and either is allowed to match; see [normaliseTitles].
      */
     private val BRACKET_CHARS = Regex("""[\(\)\[\]【】［］（）]""")
+
+    /** A bracketed group, contents included. */
+    private val BRACKETED_GROUP = Regex("""[\(\[【（［][^\)\]】）］]*[\)\]】）］]""")
 
     /** Everything that is not a letter or a digit. */
     private val NON_WORD = Regex("""[^\p{L}\p{N}]""")
@@ -1305,7 +1331,7 @@ object YoutubeDataExtractor {
         if (replacementId != null) {
             val replacementUrl = resolveAnonymousStreamUrl(replacementId, settings)
             if (replacementUrl != null) {
-                printd("${song.youtubeId} : Resolved through replacement $replacementId")
+                printw("${song.youtubeId} : Resolved through replacement $replacementId")
                 return replacementUrl
             }
         }
@@ -1449,10 +1475,10 @@ object YoutubeDataExtractor {
         // one of them. Matching any segment long enough to be distinctive covers both.
         val wantedTitles = song.title
             .split(TITLE_SEGMENT_SEPARATOR)
-            .map { normaliseTitle(it) }
+            .flatMap { normaliseTitles(it) }
             .filter { it.length >= 2 }
-            .ifEmpty { listOf(normaliseTitle(song.title)) }
-            .filter { it.isNotEmpty() }
+            .distinct()
+            .ifEmpty { normaliseTitles(song.title).filter { it.length >= 2 } }
         if (wantedTitles.isEmpty()) return null
         val wantedSeconds = parseDurationSeconds(song.duration)
         val wantedArtist = normaliseArtist(song.artists)
@@ -1460,9 +1486,10 @@ object YoutubeDataExtractor {
         val best = candidates
             .asSequence()
             .filter { !REPLACEMENT_DERIVATIVE.containsMatchIn(it.title) }
+            .filter { !isLiveTake(it.title, song.title) }
             .filter { candidate ->
-                val title = normaliseTitle(candidate.title)
-                title.isNotEmpty() && wantedTitles.any { title.contains(it) }
+                val titles = normaliseTitles(candidate.title)
+                titles.any { haystack -> wantedTitles.any { haystack.contains(it) } }
             }
             .filter { candidate ->
                 wantedArtist.isEmpty() ||
@@ -1473,23 +1500,75 @@ object YoutubeDataExtractor {
                 val seconds = parseDurationSeconds(candidate.duration)
                 if (wantedSeconds == null || seconds == null) return@mapNotNull null
                 val delta = kotlin.math.abs(seconds - wantedSeconds)
-                if (delta > REPLACEMENT_MAX_DURATION_DELTA) null else candidate to delta
+                if (delta > REPLACEMENT_MAX_DURATION_DELTA) return@mapNotNull null
+
+                // Within a few seconds of the original, a fan re-upload and the rights
+                // holder's own video are both "the same track", and the official one is the
+                // better pick — the fan copy is often a lyric video built from a lossy rip.
+                // Outside that window the closer length is the only signal worth having.
+                //
+                // "Official" in the title is a weak marker: the upload the search ranks first
+                // is often titled plain "Artist - Title" with no such word. Matching the
+                // channel against the track's own artist is the stronger signal, and it is
+                // what keeps a fan channel's lyric video behind the artist's own upload.
+                Replacement(
+                    song = candidate,
+                    closeEnough = if (delta <= REPLACEMENT_OFFICIAL_WINDOW) 0 else 1,
+                    artistExact = if (wantedArtist.isNotEmpty() &&
+                        normaliseArtist(candidate.artists) == wantedArtist
+                    ) 0 else 1,
+                    official = if (OFFICIAL_MARK.containsMatchIn(candidate.title) ||
+                        OFFICIAL_MARK.containsMatchIn(candidate.artists)
+                    ) 0 else 1,
+                    delta = delta,
+                )
             }
-            .minByOrNull { it.second }
-            ?.first
+            .sortedWith(
+                compareBy(
+                    { it.closeEnough },
+                    { it.artistExact },
+                    { it.official },
+                    { it.delta },
+                )
+            )
+            .firstOrNull()
+            ?.song
             ?.youtubeId
             ?: return null
 
-        printd("${song.youtubeId} : Matched replacement $best for \"$query\"")
+        printw("${song.youtubeId} : Matched replacement $best for \"$query\"")
         replacementIds[song.youtubeId] = best
         return best
     }
 
-    /** Letters and digits only, so punctuation and bracketed suffixes stop mattering. */
-    private fun normaliseTitle(value: String): String =
+    /** One accepted candidate, carrying the keys it is ranked on. */
+    private data class Replacement(
+        val song: Song,
+        val closeEnough: Int,
+        val artistExact: Int,
+        val official: Int,
+        val delta: Int,
+    )
+
+    /**
+     * Both readings of a title, because either one can be the key that matches.
+     *
+     * Dropping a bracketed group whole turns `Lonely Together (feat. Rita Ora)` into
+     * `lonelytogether`, which is what a re-upload's shorter title still contains. Keeping its
+     * contents turns `徐佳瑩 LaLa【一樣的月光】Official Music Video` into something that still
+     * holds `一样的月光`, where dropping it would leave nothing to match. Neither reading wins
+     * for every title, so both are tried.
+     */
+    private fun normaliseTitles(value: String): List<String> =
+        listOf(
+            normaliseTitle(value, dropBracketed = true),
+            normaliseTitle(value, dropBracketed = false),
+        ).filter { it.isNotEmpty() }.distinct()
+
+    private fun normaliseTitle(value: String, dropBracketed: Boolean): String =
         HanziFold.fold(value)
             .lowercase(Locale.ROOT)
-            .replace(BRACKET_CHARS, " ")
+            .replace(if (dropBracketed) BRACKETED_GROUP else BRACKET_CHARS, " ")
             .replace(NON_WORD, "")
             .trim()
 
@@ -1502,6 +1581,19 @@ object YoutubeDataExtractor {
             .orEmpty()
             .replace(NON_WORD, "")
             .trim()
+
+    /**
+     * True when the candidate is a concert recording of a song that is not one.
+     *
+     * A blanket "live" keyword would drop titles that legitimately contain the word, so the
+     * test is relative: a candidate marked live is refused only when the track being replaced
+     * is not itself live. This is the case that shipped wrong — `Lonely Together` resolved to
+     * a live take because its length happened to land inside the tolerance.
+     */
+    private fun isLiveTake(candidateTitle: String, wantedTitle: String): Boolean =
+        (LIVE_WORD.containsMatchIn(candidateTitle) && !LIVE_WORD.containsMatchIn(wantedTitle)) ||
+                (LIVE_CJK.containsMatchIn(candidateTitle) && !LIVE_CJK.containsMatchIn(wantedTitle))
+
 
     private fun parseDurationSeconds(value: String): Int? {
         val parts = value.split(':').map { it.trim().toIntOrNull() ?: return null }
