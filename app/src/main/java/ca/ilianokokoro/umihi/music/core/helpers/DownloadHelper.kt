@@ -112,7 +112,8 @@ object DownloadHelper {
     suspend fun downloadAudio(
         context: Context,
         song: Song,
-        retries: Int = Constants.YoutubeApi.RETRY_COUNT
+        retries: Int = Constants.YoutubeApi.RETRY_COUNT,
+        allowReplacement: Boolean = true
     ): String? = withContext(Dispatchers.IO) {
         val userFolder = DatastoreRepository(context).getSettings().downloadLocation
 
@@ -141,7 +142,11 @@ object DownloadHelper {
             return@withContext outputFile.absolutePath
         }
 
-        val url = YoutubeDataExtractor.getSongPlayerUrl(context, song)
+        val url = YoutubeDataExtractor.getSongPlayerUrl(
+            context,
+            song,
+            allowReplacement = allowReplacement
+        )
 
         var lastException: Exception? = null
 

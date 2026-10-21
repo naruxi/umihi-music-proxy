@@ -88,7 +88,13 @@ class DownloadRepository(appContext: Context) {
         }
 
         localPlaylistRepository.insertPlaylistWithSongs(playlist)
-        enqueueSongDownload(song, id, playlist.info.id, useMetered)
+        enqueueSongDownload(
+            song = song,
+            uniqueWorkId = id,
+            playlistId = playlist.info.id,
+            useMetered = useMetered,
+            allowReplacement = true
+        )
     }
 
     suspend fun downloadSong(song: Song, useMetered: Boolean = false) {
@@ -107,14 +113,23 @@ class DownloadRepository(appContext: Context) {
         if (existingSong == null) {
             localSongRepository.create(song)
         }
-        enqueueSongDownload(song, song.youtubeId, null, useMetered)
+        // Started from a search result: the id on screen is the one the user chose, so a dead
+        // upload fails instead of being replaced by a re-upload of the same song.
+        enqueueSongDownload(
+            song = song,
+            uniqueWorkId = song.youtubeId,
+            playlistId = null,
+            useMetered = useMetered,
+            allowReplacement = false
+        )
     }
 
     private suspend fun enqueueSongDownload(
         song: Song,
         uniqueWorkId: String,
         playlistId: String?,
-        useMetered: Boolean
+        useMetered: Boolean,
+        allowReplacement: Boolean
     ) {
         val builder = OneTimeWorkRequestBuilder<SongDownloadWorker>().setConstraints(
             Constraints(
@@ -126,10 +141,14 @@ class DownloadRepository(appContext: Context) {
         val data = if (playlistId != null) {
             workDataOf(
                 SongDownloadWorker.PLAYLIST_KEY to playlistId,
-                SongDownloadWorker.SONG_KEY to song.youtubeId
+                SongDownloadWorker.SONG_KEY to song.youtubeId,
+                SongDownloadWorker.ALLOW_REPLACEMENT_KEY to allowReplacement
             )
         } else {
-            workDataOf(SongDownloadWorker.SONG_KEY to song.youtubeId)
+            workDataOf(
+                SongDownloadWorker.SONG_KEY to song.youtubeId,
+                SongDownloadWorker.ALLOW_REPLACEMENT_KEY to allowReplacement
+            )
         }
         builder.setInputData(data)
 

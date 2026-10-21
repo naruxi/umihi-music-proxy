@@ -1219,7 +1219,8 @@ object YoutubeDataExtractor {
     suspend fun getSongPlayerUrl(
         context: Context,
         song: Song,
-        allowLocal: Boolean = false
+        allowLocal: Boolean = false,
+        allowReplacement: Boolean = true
     ): String {
         val localSongRepository = AppDatabase.getInstance(context).songRepository()
         var savedSong: Song? = null
@@ -1262,7 +1263,7 @@ object YoutubeDataExtractor {
             DatastoreRepository(context).getSettings()
         }.getOrNull()
 
-        val newUri = getSongUrlFromYoutube(song, settings)
+        val newUri = getSongUrlFromYoutube(song, settings, allowReplacement = allowReplacement)
         localSongRepository.setStreamUrl(songId = song.youtubeId, streamUrl = newUri)
         printd("[${song.youtubeId}] Got url from YouTube and saved song")
         return newUri
@@ -1323,7 +1324,8 @@ object YoutubeDataExtractor {
     private suspend fun getSongUrlFromYoutube(
         song: Song,
         settings: UmihiSettings? = null,
-        retries: Int = Constants.YoutubeApi.NEWPIPE_TRIES
+        retries: Int = Constants.YoutubeApi.NEWPIPE_TRIES,
+        allowReplacement: Boolean = true
     ): String {
         var lastError: Throwable? = null
 
@@ -1337,7 +1339,14 @@ object YoutubeDataExtractor {
         // upload can be pulled while re-uploads of the same track stay playable. Ask the
         // catalogue before falling back to NewPipe, which speaks a client these exits refuse
         // just as readily.
-        val replacementId = findReplacementVideoId(song)
+        //
+        // Only for callers that do not care which upload they get. A download started from a
+        // search result is the opposite case — the user picked that video on purpose, so a
+        // silent swap for a different take is worse than an honest failure.
+        if (!allowReplacement) {
+            printd("${song.youtubeId} : Replacement disabled by caller, staying on this video")
+        }
+        val replacementId = if (allowReplacement) findReplacementVideoId(song) else null
         if (replacementId != null) {
             val replacementUrl = resolveAnonymousStreamUrl(replacementId, settings)
             if (replacementUrl != null) {

@@ -31,6 +31,11 @@ class SongDownloadWorker(
         val songId = params.inputData.getString(SONG_KEY)
             ?: return Result.failure()
 
+        // Set by the caller that queued this job. A single track pulled from a playlist may
+        // legitimately be swapped for a live re-upload when its id went dead; a track the user
+        // picked out of search results may not.
+        val allowReplacement = params.inputData.getBoolean(ALLOW_REPLACEMENT_KEY, true)
+
         val song = localSongRepository.getSong(songId)
             ?: return Result.failure()
 
@@ -60,7 +65,11 @@ class SongDownloadWorker(
 
             val fullSong = (fullSongData as ApiResult.Success).data
 
-            val audioPath = DownloadHelper.downloadAudio(appContext, song)
+            val audioPath = DownloadHelper.downloadAudio(
+                appContext,
+                song,
+                allowReplacement = allowReplacement
+            )
 
             val thumbnailPath = DownloadHelper.downloadImage(
                 appContext,
@@ -112,5 +121,6 @@ class SongDownloadWorker(
     companion object {
         const val PLAYLIST_KEY = "playlist"
         const val SONG_KEY = "song"
+        const val ALLOW_REPLACEMENT_KEY = "allowReplacement"
     }
 }
