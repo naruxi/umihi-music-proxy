@@ -419,6 +419,24 @@ object Constants {
                 VISION_OS
             )
 
+            /**
+             * Clients tried on a second pass that carries the account cookies.
+             *
+             * The anonymous pass answers `UNPLAYABLE / This video is not available` for
+             * everything the player only hands out to a signed-in caller: the user's own
+             * uploads, the tracks the library keeps as "music only", and the whole catalogue
+             * on an exit YouTube decides to distrust. Both rejections look identical without
+             * a cookie, so the only way to tell them apart is to ask again with one.
+             *
+             * `WEB_REMIX` leads because it is the client that the SAPISIDHASH scheme in
+             * [YoutubeAuthHelper] was designed around; `VISION_OS` follows for the tracks the
+             * web client refuses without a PO token.
+             */
+            val AUTH_FALLBACK_ORDER = listOf(
+                WEB_REMIX,
+                VISION_OS,
+            )
+
             val TRACKING_FALLBACK_ORDER = listOf(
                 WEB_REMIX,
                 ANDROID,

@@ -11,6 +11,7 @@ import ca.ilianokokoro.umihi.music.core.helpers.LogHelper.printe
 import ca.ilianokokoro.umihi.music.core.helpers.UmihiHelper.safeArray
 import ca.ilianokokoro.umihi.music.core.helpers.UmihiHelper.safeObject
 import ca.ilianokokoro.umihi.music.data.database.AppDatabase
+import ca.ilianokokoro.umihi.music.data.repositories.DatastoreRepository
 import ca.ilianokokoro.umihi.music.extensions.getClientName
 import ca.ilianokokoro.umihi.music.models.AddToPlaylistOption
 import ca.ilianokokoro.umihi.music.models.PlaylistInfo
@@ -1172,7 +1173,15 @@ object YoutubeDataExtractor {
             }
         }
 
-        val newUri = getSongUrlFromYoutube(song)
+        // The cookies decide whether the player call is answered at all: signed out, YouTube
+        // refuses uploads and library-only tracks with the same `UNPLAYABLE` it uses for a
+        // region block. Reading them here keeps both callers — playback and download — on the
+        // same, signed-in path without threading settings through the player factory.
+        val settings = runCatching {
+            DatastoreRepository(context).getSettings()
+        }.getOrNull()
+
+        val newUri = getSongUrlFromYoutube(song, settings)
         localSongRepository.setStreamUrl(songId = song.youtubeId, streamUrl = newUri)
         printd("[${song.youtubeId}] Got url from YouTube and saved song")
         return newUri
@@ -1232,11 +1241,12 @@ object YoutubeDataExtractor {
 
     private suspend fun getSongUrlFromYoutube(
         song: Song,
+        settings: UmihiSettings? = null,
         retries: Int = Constants.YoutubeApi.NEWPIPE_TRIES
     ): String {
         var lastError: Throwable? = null
 
-        val fastUrl = resolveAnonymousStreamUrl(song.youtubeId)
+        val fastUrl = resolveAnonymousStreamUrl(song.youtubeId, settings)
 
         if (fastUrl != null) {
             return fastUrl
@@ -1270,48 +1280,68 @@ object YoutubeDataExtractor {
 
     private suspend fun resolveAnonymousStreamUrl(
         videoId: String,
+        settings: UmihiSettings? = null,
     ): String? = withContext(Dispatchers.IO) {
-        suspend fun executeRequest(client: JsonObject): String {
+        suspend fun executeRequest(client: JsonObject, auth: UmihiSettings?): String {
             val response = YoutubeApiClient.getPlayerInfo(
                 videoId = videoId,
                 client = client,
                 visitorData = visitorData,
+                settings = auth,
             )
 
             return extractStreamFromRawResponse(response)
         }
 
+        // Two passes. The first is anonymous, which is enough for the public catalogue and
+        // costs one request. The second carries the account cookies, because a signed-out
+        // player call answers `UNPLAYABLE / This video is not available` for uploads, for the
+        // library-only tracks, and for every video on an exit YouTube distrusts — the same
+        // answer a region block gives, so the first pass cannot tell them apart.
+        val passes = mutableListOf<UmihiSettings?>()
+        passes.add(null)
+        settings?.takeIf { !it.cookies.isEmpty() }?.let { passes.add(it) }
+
         var totalRequests = 0
 
-        for (client in Constants.YoutubeApi.Client.FALLBACK_ORDER) {
-            val clientName = client.getClientName()
-            var tries = 0
+        for (auth in passes) {
+            val clients = if (auth == null) {
+                Constants.YoutubeApi.Client.FALLBACK_ORDER
+            } else {
+                Constants.YoutubeApi.Client.AUTH_FALLBACK_ORDER
+            }
 
-            while (tries < Constants.YoutubeApi.PLAYER_TRIES_PER_CLIENT) {
-                tries++
-                totalRequests++
+            for (client in clients) {
+                val clientName = client.getClientName()
+                val label = if (auth == null) clientName else "$clientName+auth"
+                var tries = 0
 
-                try {
-                    val stream = executeRequest(client)
-                    printd(
-                        "[$clientName] Resolved stream in $totalRequests total request(s)"
-                    )
-                    return@withContext stream
+                while (tries < Constants.YoutubeApi.PLAYER_TRIES_PER_CLIENT) {
+                    tries++
+                    totalRequests++
 
-                } catch (ex: Exception) {
-                    val message = ex.message ?: ex::class.simpleName.orEmpty()
-                    printe("[${clientName}] $message")
+                    try {
+                        val stream = executeRequest(client, auth)
+                        printd(
+                            "[$label] Resolved stream in $totalRequests total request(s)"
+                        )
+                        return@withContext stream
 
-                    // "Sign in to confirm you're not a bot" is a coin flip, not a verdict:
-                    // measured on a flagged exit, 7 of 20 anonymous player calls were
-                    // rejected and the rest went through, with the same visitor id and the
-                    // same video. The old loop only retried while the response had replaced
-                    // the visitor id, and these rejections echo it back unchanged, so it
-                    // stopped after two attempts and fell into the NewPipe fallback — which
-                    // that exit rejects too, showing up as a "source error" seconds later.
-                    // Retrying with the visitor id the response just handed back is enough;
-                    // clearing it would make every retry visitor-less and fail every time.
-                    if (!isBotCheck(message)) break
+                    } catch (ex: Exception) {
+                        val message = ex.message ?: ex::class.simpleName.orEmpty()
+                        printe("[${label}] $message")
+
+                        // "Sign in to confirm you're not a bot" is a coin flip, not a verdict:
+                        // measured on a flagged exit, 7 of 20 anonymous player calls were
+                        // rejected and the rest went through, with the same visitor id and the
+                        // same video. The old loop only retried while the response had replaced
+                        // the visitor id, and these rejections echo it back unchanged, so it
+                        // stopped after two attempts and fell into the NewPipe fallback — which
+                        // that exit rejects too, showing up as a "source error" seconds later.
+                        // Retrying with the visitor id the response just handed back is enough;
+                        // clearing it would make every retry visitor-less and fail every time.
+                        if (!isBotCheck(message)) break
+                    }
                 }
             }
         }
