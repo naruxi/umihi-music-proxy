@@ -71,7 +71,14 @@ object YoutubeDataExtractor {
     private const val REPLACEMENT_OFFICIAL_WINDOW = 5
 
     /**
-     * Titles that name a derivative rather than the recording itself.
+     * Titles that name a version of the song rather than the song.
+     *
+     * Every entry here was put there by a wrong download, not by theory. Measured on the real
+     * results for six dead ids, the matcher accepted a vinyl transfer ("黑胶 Hi-Fi"), a TV gala
+     * where the artist sang the song as a duet ("金曲捞 … 合唱"), and a reworked "抖音释怀版" —
+     * each one passing because it carried the right title, the right artist and a length
+     * inside the tolerance. A wrong recording is worse than a failed download, so the list
+     * errs towards refusing.
      *
      * "live" is deliberately absent: it is a legitimate word in plenty of song titles, so the
      * check for it compares the candidate against the track being replaced instead — see
@@ -79,7 +86,10 @@ object YoutubeDataExtractor {
      */
     private val REPLACEMENT_DERIVATIVE = Regex(
         """\b(cover|karaoke|instrumental|remix|nightcore|sped\s*up|slowed|reverb|8d|parody|tribute|ai\s+cover)\b""" +
-                "|翻唱|伴奏|纯音乐|純音樂|dj版|加速版|慢速版",
+                """|\b(concert|session|acoustic|unplugged|vinyl|hifi|hi-fi|dsd|flac)\b""" +
+                "|翻唱|伴奏|纯音乐|純音樂|dj版|加速版|慢速版|女版|男版|童声|童聲" +
+                "|现场|現場|演唱會|演唱会|综艺|綜藝|合唱|金曲捞|金曲撈|舞台|音乐节|音樂節|蒙面|天赐的声音|我們的歌|我们的歌" +
+                "|黑胶|黑膠|无损|無損|抖音|释怀|釋懷",
         RegexOption.IGNORE_CASE
     )
 
@@ -1507,15 +1517,16 @@ object YoutubeDataExtractor {
                 // better pick — the fan copy is often a lyric video built from a lossy rip.
                 // Outside that window the closer length is the only signal worth having.
                 //
-                // "Official" in the title is a weak marker: the upload the search ranks first
-                // is often titled plain "Artist - Title" with no such word. Matching the
-                // channel against the track's own artist is the stronger signal, and it is
-                // what keeps a fan channel's lyric video behind the artist's own upload.
+                // Ownership is read two ways. "Official" in the title is the weak one: the
+                // upload ranked first is usually titled plainly "Artist - Title". What the
+                // channel itself is called is stronger — `AviciiOfficialVEVO` carries the
+                // artist's name while `Ronan F` and `Lyrics Music` do not — so a channel that
+                // *contains* the artist outranks one that merely shares a word with the title.
                 Replacement(
                     song = candidate,
                     closeEnough = if (delta <= REPLACEMENT_OFFICIAL_WINDOW) 0 else 1,
-                    artistExact = if (wantedArtist.isNotEmpty() &&
-                        normaliseArtist(candidate.artists) == wantedArtist
+                    artistChannel = if (wantedArtist.isNotEmpty() &&
+                        normaliseArtist(candidate.artists).contains(wantedArtist)
                     ) 0 else 1,
                     official = if (OFFICIAL_MARK.containsMatchIn(candidate.title) ||
                         OFFICIAL_MARK.containsMatchIn(candidate.artists)
@@ -1526,7 +1537,7 @@ object YoutubeDataExtractor {
             .sortedWith(
                 compareBy(
                     { it.closeEnough },
-                    { it.artistExact },
+                    { it.artistChannel },
                     { it.official },
                     { it.delta },
                 )
@@ -1545,7 +1556,7 @@ object YoutubeDataExtractor {
     private data class Replacement(
         val song: Song,
         val closeEnough: Int,
-        val artistExact: Int,
+        val artistChannel: Int,
         val official: Int,
         val delta: Int,
     )
