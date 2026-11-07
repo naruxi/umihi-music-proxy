@@ -30,6 +30,10 @@ import io.nekohasekai.libbox.WIFIState;
  * Every callback that the core could plausibly reach during a plain proxy session is traced,
  * because a crash inside Go gives us no stack trace of its own — the last traced callback is
  * what identifies the culprit.
+ *
+ * libbox 1.14.4 dropped {@code UseProcFS()} from this interface (the core no longer offers a
+ * procfs-based connection-owner lookup on Android). Do not reintroduce an override for it: with
+ * the method gone from the generated interface, {@code @Override} stops compiling.
  */
 public class ProxyPlatformInterface implements PlatformInterface {
 
@@ -212,11 +216,6 @@ public class ProxyPlatformInterface implements PlatformInterface {
 
     @Override
     public boolean usePlatformShell() {
-        return false;
-    }
-
-    @Override
-    public boolean useProcFS() {
         return false;
     }
 }
