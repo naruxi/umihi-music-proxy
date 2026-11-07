@@ -13,7 +13,7 @@ import java.io.File
  * Only one service runs at a time; switching nodes is a close + fresh start rather than a
  * reload so a half-broken config can never linger in memory.
  *
- * API notes (verified against libbox v1.14.3, the version pinned in CI):
+ * API notes (verified against libbox v1.14.4, the version pinned in CI):
  *  - `Libbox.newService()` / `BoxService` no longer exist since 1.13; the entry point is
  *    `CommandServer` + `startOrReloadService`.
  *  - `Libbox.setup` must run once per process before anything else.

@@ -7,7 +7,7 @@
 #
 set -euo pipefail
 
-VERSION="${LIBBOX_VERSION:-1.14.3}"
+VERSION="${LIBBOX_VERSION:-1.14.4}"
 # Optional mirror prefix for users behind the GFW, e.g. LIBBOX_MIRROR=https://gh-proxy.com/
 MIRROR="${LIBBOX_MIRROR:-}"
 

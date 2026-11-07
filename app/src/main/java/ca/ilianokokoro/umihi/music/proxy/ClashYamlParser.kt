@@ -80,9 +80,26 @@ object ClashYamlParser {
             pluginOpts = flattenPluginOpts(pluginOpts),
             username = str(map, "username", "user"),
             congestionControl = str(map, "congestion-controller", "congestion_control"),
+            alpn = csv(map, "alpn"),
+            udpRelayMode = str(map, "udp-relay-mode", "udp_relay_mode"),
             upMbps = int(map, "up"),
             downMbps = int(map, "down"),
         )
+    }
+
+    /**
+     * Clash writes ALPN either as a YAML list (`alpn: [h3]`) or as a bare string; sing-box
+     * wants the list form, so normalise both into a comma-separated string here.
+     */
+    private fun csv(map: Map<*, *>, key: String): String? {
+        val v = map[key] ?: return null
+        return when (v) {
+            is List<*> -> v.mapNotNull { it?.toString()?.trim()?.takeIf(String::isNotEmpty) }
+                .joinToString(",")
+                .takeIf { it.isNotEmpty() }
+
+            else -> v.toString().trim().takeIf { it.isNotEmpty() && it != "null" }
+        }
     }
 
     /** Clash keeps ss plugin options as a nested map; sing-box wants one query-like string. */

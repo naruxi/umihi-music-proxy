@@ -231,6 +231,9 @@ object ShareLinkParser {
             sni = parts.query["sni"]?.takeIf { it.isNotBlank() },
             insecure = parts.query["allow_insecure"] == "1" || parts.query["insecure"] == "1",
             congestionControl = parts.query["congestion_control"]?.takeIf { it.isNotBlank() },
+            alpn = parts.query["alpn"]?.takeIf { it.isNotBlank() },
+            udpRelayMode = (parts.query["udp_relay_mode"] ?: parts.query["udp-relay-mode"])
+                ?.takeIf { it.isNotBlank() },
         )
     }
 

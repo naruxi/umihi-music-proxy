@@ -41,6 +41,10 @@ data class ProxyNode(
     /** socks / http auth */
     val username: String? = null,
     val congestionControl: String? = null,
+    /** Comma-separated ALPN list, e.g. "h3" or "h3,h2". QUIC protocols need h3. */
+    val alpn: String? = null,
+    /** tuic udp_relay_mode: native / quic */
+    val udpRelayMode: String? = null,
     val upMbps: Int? = null,
     val downMbps: Int? = null,
     /** true when the subscription lists it as the provider's recommended default */

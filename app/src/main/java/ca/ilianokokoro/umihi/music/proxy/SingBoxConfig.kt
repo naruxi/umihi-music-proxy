@@ -165,7 +165,7 @@ object SingBoxConfig {
                 put("password", node.obfsPassword)
             })
         }
-        putTls(node.copy(tls = true))
+        putTls(node.copy(tls = true), allowUtls = false, defaultAlpn = "h3")
     }
 
     private fun kotlinx.serialization.json.JsonObjectBuilder.putTuic(node: ProxyNode) {
@@ -174,7 +174,12 @@ object SingBoxConfig {
         node.uuid?.takeIf { it.isNotBlank() }?.let { put("uuid", it) }
         node.password?.takeIf { it.isNotBlank() }?.let { put("password", it) }
         node.congestionControl?.takeIf { it.isNotBlank() }?.let { put("congestion_control", it) }
-        putTls(node.copy(tls = true))
+        // native / quic. Left unset the core assumes native; a provider that runs the quic
+        // relay mode then answers the handshake but never moves the stream, which looks
+        // exactly like "the node connects but nothing loads".
+        node.udpRelayMode?.takeIf { it.isNotBlank() }?.let { put("udp_relay_mode", it) }
+        // TUIC is QUIC, so uTLS does not apply and the ALPN has to be h3.
+        putTls(node.copy(tls = true), allowUtls = false, defaultAlpn = "h3")
     }
 
     private fun kotlinx.serialization.json.JsonObjectBuilder.putSocks(node: ProxyNode) {
@@ -238,7 +243,17 @@ object SingBoxConfig {
         }
     }
 
-    private fun kotlinx.serialization.json.JsonObjectBuilder.putTls(node: ProxyNode) {
+    /**
+     * @param allowUtls false for the QUIC-based outbounds (tuic, hysteria2). uTLS only exists
+     *   for TLS-over-TCP; emitting it there tells the core to negotiate a stream handshake for
+     *   a transport that needs a QUIC one, and the node simply never comes up.
+     * @param defaultAlpn used when the subscription does not specify an ALPN list.
+     */
+    private fun kotlinx.serialization.json.JsonObjectBuilder.putTls(
+        node: ProxyNode,
+        allowUtls: Boolean = true,
+        defaultAlpn: String? = null,
+    ) {
         if (!node.tls) return
 
         put("tls", buildJsonObject {
@@ -249,17 +264,27 @@ object SingBoxConfig {
             sni?.let { put("server_name", it) }
             if (node.insecure) put("insecure", true)
 
+            // Clash writes alpn as a list, share links as a comma-separated query value.
+            (node.alpn?.takeIf { it.isNotBlank() } ?: defaultAlpn)?.let { value ->
+                val protocols = value.split(',').map { it.trim() }.filter { it.isNotEmpty() }
+                if (protocols.isNotEmpty()) {
+                    put("alpn", buildJsonArray { protocols.forEach { add(it) } })
+                }
+            }
+
             val reality = !node.realityPublicKey.isNullOrBlank()
             // sing-box refuses a REALITY client without uTLS ("uTLS is required by reality
             // client"), and plenty of Clash subscriptions omit client-fingerprint, so default
             // to the same fingerprint Clash itself uses.
             val fingerprint = node.fingerprint?.takeIf { it.isNotBlank() }
                 ?: if (reality) "chrome" else null
-            fingerprint?.let { fp ->
-                put("utls", buildJsonObject {
-                    put("enabled", true)
-                    put("fingerprint", fp)
-                })
+            if (allowUtls) {
+                fingerprint?.let { fp ->
+                    put("utls", buildJsonObject {
+                        put("enabled", true)
+                        put("fingerprint", fp)
+                    })
+                }
             }
 
             if (reality) {

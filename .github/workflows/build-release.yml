@@ -52,7 +52,7 @@ jobs:
       - name: Fetch libbox proxy core
         run: chmod +x ./scripts/fetch-libbox.sh && ./scripts/fetch-libbox.sh
         env:
-          LIBBOX_VERSION: "1.14.3"
+          LIBBOX_VERSION: "1.14.4"
 
       - name: Detect signing secrets
         id: signing
